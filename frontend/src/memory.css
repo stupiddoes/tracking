@@ -1,0 +1,5 @@
+.memory-upload input[type="file"] { padding: 9px; }
+.memory-image { margin: 10px 0 0; }
+.memory-image img { display: block; width: min(100%, 360px); max-height: 420px; object-fit: cover; border-radius: 14px; }
+.memory-image figcaption { margin-top: 6px; color: #788078; font-size: 11px; line-height: 1.4; }
+.memory-loading { margin-top: 8px; color: #8a918b; font-size: 11px; }

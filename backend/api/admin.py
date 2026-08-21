@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Character, Conversation, Message, Profile
+from .models import Character, Conversation, MemoryAsset, Message, Profile
 
 
 @admin.register(Profile)
@@ -30,3 +30,11 @@ class MessageAdmin(admin.ModelAdmin):
     list_filter = ("role", "created_at")
     search_fields = ("content", "conversation__character__name", "conversation__character__owner__username")
     readonly_fields = ("created_at",)
+
+
+@admin.register(MemoryAsset)
+class MemoryAssetAdmin(admin.ModelAdmin):
+    list_display = ("caption", "owner", "character", "sensitivity", "display_policy", "captured_at", "created_at")
+    list_filter = ("sensitivity", "display_policy", "created_at")
+    search_fields = ("caption", "tags", "owner__username", "character__name")
+    readonly_fields = ("embedding", "embedding_model", "created_at")

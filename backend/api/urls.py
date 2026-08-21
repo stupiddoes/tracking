@@ -4,6 +4,7 @@ from . import views
 
 router = DefaultRouter()
 router.register("characters", views.CharacterViewSet, basename="character")
+router.register("memory-assets", views.MemoryAssetViewSet, basename="memory-asset")
 urlpatterns = [
     path("", include(router.urls)),
     path("health", views.health),

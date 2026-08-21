@@ -1,6 +1,7 @@
 import uuid
 from django.conf import settings
 from django.db import models
+from pgvector.django import VectorField
 
 
 class Profile(models.Model):
@@ -47,3 +48,32 @@ class Message(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+def memory_image_path(instance, filename):
+    suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+    return f"memories/{instance.owner_id}/{instance.character_id}/{uuid.uuid4()}.{suffix}"
+
+
+class MemoryAsset(models.Model):
+    class Sensitivity(models.TextChoices):
+        ORDINARY = "ordinary", "一般"
+        ADULT = "adult", "成人"
+
+    class DisplayPolicy(models.TextChoices):
+        ON_REQUEST = "on_request", "只在要求時"
+        RELATED = "related", "相關時可顯示"
+        NEVER = "never", "不在對話顯示"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memory_assets")
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="memory_assets")
+    image = models.ImageField(upload_to=memory_image_path)
+    caption = models.TextField()
+    tags = models.CharField(max_length=500, blank=True)
+    captured_at = models.DateField(null=True, blank=True)
+    sensitivity = models.CharField(max_length=16, choices=Sensitivity.choices, default=Sensitivity.ORDINARY)
+    display_policy = models.CharField(max_length=16, choices=DisplayPolicy.choices, default=DisplayPolicy.ON_REQUEST)
+    embedding = VectorField(dimensions=768, null=True, blank=True)
+    embedding_model = models.CharField(max_length=80, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)

@@ -34,6 +34,7 @@ CSRF_COOKIE_NAME = "stillhere_csrftoken"
 SESSION_COOKIE_NAME = "stillhere_sessionid"
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", "/data/assets"))
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
@@ -53,5 +54,6 @@ REST_FRAMEWORK = {
 }
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemma3:4b")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "embeddinggemma")
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL

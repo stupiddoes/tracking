@@ -204,6 +204,11 @@ MVP 不要求輸入真實出生日期，只儲存年齡組別。`under_13` 預�
 **`chunk_embeddings`**：chunk ID 及向量。  
 **`citations`**：assistant message 與 chunk 的關係、retrieval score、顯示片段。
 
+圖片回憶 MVP 以 `memory_assets` 實作：每項素材硬性保存 `owner_id`、
+`character_id`、private file path、用戶提供的 caption／tags、拍攝日期、敏感度、
+展示規則及 768 維 embedding。圖片只可經 Token-authenticated content endpoint 讀取；
+檢索必須先按 owner、伙伴、展示規則及 18+ 狀態作硬過濾，才以 cosine distance 排序。
+
 #### Vector database 決定
 
 MVP 的 vector database 採用 **PostgreSQL 17 + pgvector**，不另外部署 Pinecone、Qdrant、Chroma 或其他獨立向量服務。一般關聯資料、素材 metadata、chunks、embeddings 及 ownership constraints 均在同一個 PostgreSQL transaction boundary 內管理。
