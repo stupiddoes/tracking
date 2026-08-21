@@ -49,3 +49,7 @@ Repository 需要設定以下 Actions secrets：
 Server 上的 `.env`、PostgreSQL data、上載資料及項目 Ollama models 均不由
 Git 管理，部署時會保留原有 named volumes。項目 Ollama 不 publish host port，
 workflow 不會操作 server 原有的 Ollama service。
+
+首次部署若未有 `.env`，workflow 會在 server 上建立權限 `600` 的檔案，並以
+`openssl` 產生獨立 PostgreSQL password 及 Django secret。其後部署不會覆蓋
+該檔案或更換 credentials。

@@ -46,5 +46,12 @@ jobs:
              DEPLOY_PATH=/home/virality/tracking
              test -f "$DEPLOY_PATH/compose.yaml"
              git -c safe.directory="$DEPLOY_PATH" -C "$DEPLOY_PATH" pull --ff-only origin main
+             if [ ! -f "$DEPLOY_PATH/.env" ]; then
+               umask 077
+               POSTGRES_PASSWORD=$(openssl rand -hex 24)
+               DJANGO_SECRET_KEY=$(openssl rand -hex 48)
+               printf "POSTGRES_DB=stillhere\nPOSTGRES_USER=stillhere\nPOSTGRES_PASSWORD=%s\nDJANGO_SECRET_KEY=%s\nCHAT_MODEL=gemma3:4b\nEMBEDDING_MODEL=embeddinggemma\n" \
+                 "$POSTGRES_PASSWORD" "$DJANGO_SECRET_KEY" > "$DEPLOY_PATH/.env"
+             fi
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --build
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'
