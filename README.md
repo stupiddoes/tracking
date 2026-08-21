@@ -32,3 +32,20 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 語音辨識現時使用瀏覽器 capability，未保證完全離線；正式 local-first STT 將接入 backend worker。回憶 citation 現時是 UI 示範，RAG 素材 pipeline 尚未完成。
 
 設計參考圖：[`design/chat-interface-v1.png`](./design/chat-interface-v1.png)
+
+## 自動部署
+
+Push 到 `main` 後，GitHub Actions 會 SSH 到 production server，在
+`/home/virality/tracking` 執行 fast-forward-only pull，再執行
+`docker compose up -d --build`。亦可在 Actions 頁面手動觸發。
+
+Repository 需要設定以下 Actions secrets：
+
+- `SSH_HOST`
+- `SSH_PORT`
+- `SSH_PRIVATE_KEY`
+- `SSH_USERNAME`
+
+Server 上的 `.env`、PostgreSQL data、上載資料及項目 Ollama models 均不由
+Git 管理，部署時會保留原有 named volumes。項目 Ollama 不 publish host port，
+workflow 不會操作 server 原有的 Ollama service。
