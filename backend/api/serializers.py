@@ -50,10 +50,12 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
             self.fields["character"].queryset = Character.objects.filter(owner=request.user)
 
     def validate_image(self, image):
-        if image.size > 10 * 1024 * 1024:
-            raise serializers.ValidationError("圖片不可超過 10 MB。")
-        if image.content_type not in {"image/jpeg", "image/png", "image/webp"}:
-            raise serializers.ValidationError("只支援 JPEG、PNG 或 WebP。")
+        if image.size > 50 * 1024 * 1024:
+            raise serializers.ValidationError("圖片不可超過 50 MB。")
+        if getattr(image, "content_type", "") not in {
+            "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+        }:
+            raise serializers.ValidationError("只支援 JPEG、PNG、WebP、HEIC 或 HEIF。")
         return image
 
     def validate(self, attrs):

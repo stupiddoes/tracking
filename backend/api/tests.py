@@ -88,6 +88,11 @@ class MemoryAssetTests(TestCase):
         Image.new("RGB", (8, 8), "white").save(data, format="PNG")
         return SimpleUploadedFile("memory.png", data.getvalue(), content_type="image/png")
 
+    def heic_image(self):
+        data = BytesIO()
+        Image.new("RGB", (8, 8), "white").save(data, format="HEIF")
+        return SimpleUploadedFile("memory.heic", data.getvalue(), content_type="image/heic")
+
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_upload_is_embedded_and_private(self, _embedding_mock):
         response = self.client.post("/api/v1/memory-assets/", {
@@ -106,6 +111,16 @@ class MemoryAssetTests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {stranger_token.key}")
         denied = self.client.get(f"/api/v1/memory-assets/{asset.id}/content/")
         self.assertEqual(denied.status_code, 404)
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_heic_upload_is_accepted(self, _embedding_mock):
+        response = self.client.post("/api/v1/memory-assets/", {
+            "character": str(self.character.id),
+            "image": self.heic_image(),
+            "caption": "iPhone 拍攝嘅回憶",
+        }, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(MemoryAsset.objects.get().image.name.endswith(".heic"))
 
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_related_memory_can_be_retrieved(self, _embedding_mock):
