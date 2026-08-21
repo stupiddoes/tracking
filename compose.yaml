@@ -52,6 +52,14 @@ services:
         condition: service_healthy
     networks: [private]
 
+  assets-init:
+    image: alpine:3.22
+    command: ["chown", "-R", "100:101", "/data/assets", "/data/exports"]
+    volumes:
+      - uploaded_assets:/data/assets
+      - exports:/data/exports
+    networks: [private]
+
   backend:
     build: ./backend
     command: uvicorn config.asgi:application --host 0.0.0.0 --port 8765
@@ -67,6 +75,8 @@ services:
       - exports:/data/exports
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      assets-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
