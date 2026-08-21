@@ -56,5 +56,8 @@ jobs:
              if ! grep -q "^APP_ENV=" "$DEPLOY_PATH/.env"; then
                printf "\nAPP_ENV=production\n" >> "$DEPLOY_PATH/.env"
              fi
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d ollama
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull gemma3:4b
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull embeddinggemma
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --build
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'

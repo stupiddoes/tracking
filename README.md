@@ -53,3 +53,7 @@ workflow 不會操作 server 原有的 Ollama service。
 首次部署若未有 `.env`，workflow 會在 server 上建立權限 `600` 的檔案，並以
 `openssl` 產生獨立 PostgreSQL password 及 Django secret。其後部署不會覆蓋
 該檔案或更換 credentials。
+
+每次部署會先啟動項目專用 Ollama，確認／下載 `gemma3:4b` 及
+`embeddinggemma`，然後才啟動完整 application stack。模型保存在 production
+的 `ollama_models` named volume；已有模型時 Ollama 只會快速核對 manifest。
