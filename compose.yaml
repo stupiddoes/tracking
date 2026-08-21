@@ -1,0 +1,123 @@
+name: stillhere
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stillhere}
+      POSTGRES_USER: ${POSTGRES_USER:-stillhere}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stillhere-local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [ai_private, ollama_egress]
+
+  migrate:
+    build: ./backend
+    command: python manage.py migrate --noinput
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stillhere}:${POSTGRES_PASSWORD:-stillhere-local}@postgres:5432/${POSTGRES_DB:-stillhere}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+
+  backend:
+    build: ./backend
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8765
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stillhere}:${POSTGRES_PASSWORD:-stillhere-local}@postgres:5432/${POSTGRES_DB:-stillhere}
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend,172.233.65.48
+      CSRF_TRUSTED_ORIGINS: http://172.233.65.48:4173
+    volumes:
+      - uploaded_assets:/data/assets
+      - exports:/data/exports
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/v1/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    networks: [private, ai_private]
+
+  worker:
+    build: ./backend
+    command: celery -A config worker --loglevel=INFO
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stillhere}:${POSTGRES_PASSWORD:-stillhere-local}@postgres:5432/${POSTGRES_DB:-stillhere}
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - uploaded_assets:/data/assets
+      - exports:/data/exports
+    networks: [private, ai_private]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api/v1
+    ports:
+      - "0.0.0.0:4173:4173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [private]
+
+networks:
+  private:
+    internal: false
+  ai_private:
+    internal: true
+  ollama_egress:
+    internal: false
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_models:
+  uploaded_assets:
+  exports:
