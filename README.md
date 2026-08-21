@@ -35,6 +35,8 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 
 設計參考圖：[`design/chat-interface-v1.png`](./design/chat-interface-v1.png)
 
+技術文件：[`doc/tech_spec.md`](./doc/tech_spec.md) · [`doc/tech_howto.md`](./doc/tech_howto.md)（RAG／pgvector 實作教學）
+
 ## 自動部署
 
 Push 到 `main` 後，GitHub Actions 會 SSH 到 production server，在
