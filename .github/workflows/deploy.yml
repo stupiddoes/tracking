@@ -50,14 +50,18 @@ jobs:
                umask 077
                POSTGRES_PASSWORD=$(openssl rand -hex 24)
                DJANGO_SECRET_KEY=$(openssl rand -hex 48)
-               printf "APP_ENV=production\nPOSTGRES_DB=stillhere\nPOSTGRES_USER=stillhere\nPOSTGRES_PASSWORD=%s\nDJANGO_SECRET_KEY=%s\nCHAT_MODEL=gemma3:4b\nEMBEDDING_MODEL=embeddinggemma\n" \
+               printf "APP_ENV=production\nPOSTGRES_DB=stillhere\nPOSTGRES_USER=stillhere\nPOSTGRES_PASSWORD=%s\nDJANGO_SECRET_KEY=%s\nCHAT_MODEL=gemma3:1b\nEMBEDDING_MODEL=embeddinggemma\n" \
                  "$POSTGRES_PASSWORD" "$DJANGO_SECRET_KEY" > "$DEPLOY_PATH/.env"
              fi
              if ! grep -q "^APP_ENV=" "$DEPLOY_PATH/.env"; then
                printf "\nAPP_ENV=production\n" >> "$DEPLOY_PATH/.env"
              fi
+             if grep -q "^CHAT_MODEL=gemma3:4b$" "$DEPLOY_PATH/.env"; then
+               sed -i "s/^CHAT_MODEL=gemma3:4b$/CHAT_MODEL=gemma3:1b/" "$DEPLOY_PATH/.env"
+             fi
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d ollama
-             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull gemma3:4b
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull gemma3:1b
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull embeddinggemma
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama run gemma3:1b "Reply only with OK"
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --build
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'
