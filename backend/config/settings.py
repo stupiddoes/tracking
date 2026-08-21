@@ -31,7 +31,12 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-CORS_ALLOWED_ORIGINS = ["http://localhost:4173", "http://127.0.0.1:4173", "http://172.233.65.48:4173"]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://172.233.65.48:4173",
+    "http://172.233.74.36:4173",
+]
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", ",".join(CORS_ALLOWED_ORIGINS)).split(",")
 REST_FRAMEWORK = {
