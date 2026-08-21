@@ -2,6 +2,15 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+
+class Profile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    adult_confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def adult_confirmed(self):
+        return self.adult_confirmed_at is not None
+
 class Character(models.Model):
     class Mode(models.TextChoices):
         MEMORIAL = "memorial", "回憶連結"
@@ -15,6 +24,7 @@ class Character(models.Model):
     description = models.TextField(blank=True)
     persona = models.JSONField(default=dict, blank=True)
     boundaries = models.JSONField(default=dict, blank=True)
+    adult_content_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

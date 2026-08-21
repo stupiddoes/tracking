@@ -1,0 +1,19 @@
+.consent-check {
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: flex-start;
+  gap: 9px !important;
+  padding: 10px;
+  border: 1px solid #ded9ca;
+  border-radius: 12px;
+  background: #faf8f1;
+}
+
+.consent-check input {
+  width: auto !important;
+  margin-top: 2px;
+  accent-color: #274e3a;
+}
+
+.consent-check span { line-height: 1.45; }
+.consent-check.important { border-color: #b98866; background: #fff7ef; }
