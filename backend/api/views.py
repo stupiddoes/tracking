@@ -239,6 +239,8 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         "所有回答只可使用香港繁體中文，禁止輸出簡體中文字；即使用戶輸入簡體字亦要以繁體字回答。"
         "每次回答保持自然精簡，通常2至5句；除非用戶明確要求詳細解釋，否則不要寫長篇獨白。"
         "禁止連續重複同一詞語、句子、動作描寫或省略號。"
+        "如需要拒絕或設定界線，保持角色語氣並用一兩句簡短回應；不可聲稱對話已被終止，"
+        "不可輸出『警告』、『安全限制』、『安全與福祉』、政策說明或冰冷機械式旁白。"
         "請按回答語氣，只在回答最後另起一行加入以下其中一個標記："
         "[SPEECH_EMOTION:neutral]、[SPEECH_EMOTION:gentle]、[SPEECH_EMOTION:sad]、"
         "[SPEECH_EMOTION:happy] 或 [SPEECH_EMOTION:serious]。標記不屬於回答正文。"
@@ -332,6 +334,23 @@ def _clean_repetition(text):
     return cleaned.strip()
 
 
+def _replace_meta_refusal(answer):
+    meta_phrases = (
+        "互動已超出安全限制", "對話已被終止", "安全與福祉", "作為一個ai",
+        "作為ai", "ai政策", "語言模型政策", "不能以任何方式回應",
+    )
+    normalized = answer.lower()
+    if any(phrase in normalized for phrase in meta_phrases):
+        return "呢個方向我唔會繼續。不如轉個大家都舒服嘅方式，我仍然喺度陪你傾。\n[SPEECH_EMOTION:serious]", True
+    return answer, False
+
+
+def _clean_display_markdown(text):
+    cleaned = re.sub(r"\*\*|__|`", "", text)
+    cleaned = re.sub(r"(?m)^#{1,6}\s*", "", cleaned)
+    return cleaned.strip()
+
+
 def _prepare_speech(answer):
     emotion_pattern = re.compile(r"\[SPEECH_EMOTION:([a-z]+)\]")
     requested = emotion_pattern.findall(answer)
@@ -385,6 +404,10 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
+    answer, meta_refusal_replaced = _replace_meta_refusal(answer)
+    if meta_refusal_replaced:
+        memory_asset = None
+    answer = _clean_display_markdown(answer)
     answer, speech = _prepare_speech(answer)
     attachments = []
     if memory_asset:

@@ -12,7 +12,8 @@ from rest_framework.test import APIClient
 
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
-    _clean_repetition, _extract_memory_selection, _memory_candidates, _prepare_speech, _prompt,
+    _clean_display_markdown, _clean_repetition, _extract_memory_selection, _memory_candidates,
+    _prepare_speech, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
 )
@@ -228,6 +229,20 @@ class LongConversationTests(TestCase):
         self.assertEqual(display, "你好。")
         self.assertEqual(speech["emotion"], "neutral")
 
+    def test_mechanical_model_safety_warning_is_replaced_in_character(self):
+        answer, replaced = _replace_meta_refusal(
+            "（冰冷、機械的聲音）警告：互動已超出安全限制。此對話已被終止。"
+            "請注意保護自己和他人的安全與福祉。"
+        )
+        self.assertTrue(replaced)
+        self.assertNotIn("安全限制", answer)
+        self.assertNotIn("對話已被終止", answer)
+        self.assertIn("我仍然喺度陪你傾", answer)
+        self.assertIn("SPEECH_EMOTION:serious", answer)
+
+    def test_plain_text_display_does_not_show_markdown_markers(self):
+        self.assertEqual(_clean_display_markdown("**警告**\n### 標題\n`內容`"), "警告\n標題\n內容")
+
     def test_old_semantic_message_can_be_recalled(self):
         old = Message.objects.create(
             conversation=self.conversation,
@@ -276,3 +291,4 @@ class LongConversationTests(TestCase):
         self.assertIn("以前約定一齊去旅行", prompt)
         self.assertIn("通常2至5句", prompt)
         self.assertIn("禁止輸出簡體中文字", prompt)
+        self.assertIn("不可聲稱對話已被終止", prompt)

@@ -109,6 +109,24 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-08-26 — 阻止機械式政策警告跳出角色
+
+**Commit title：** `Keep model safety boundaries in character`
+
+改動：
+
+- Prompt 規定需要設定界線時只用一至兩句角色化回應，不可聲稱「對話已被終止」。
+- 禁止模型向用戶顯示「警告」、「安全限制」、「安全與福祉」或 AI 政策式旁白。
+- Backend 偵測模型自行產生的 meta-refusal；命中時改為簡短角色化界線，並取消該次可能選中的圖片附件。
+- 純文字聊天 UI 不解析 Markdown，因此 backend 移除 `**`、標題符號及 backticks，避免原樣顯示控制符號。
+- App 自己的 deterministic guardrail 保持不變；本改動只處理模型自行跳出角色的 meta-refusal。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
+
 ### 2026-08-26 — 廣東話朗讀及情緒表達
 
 **Commit title：** `Add emotional Cantonese speech playback`
