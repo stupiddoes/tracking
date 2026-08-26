@@ -31,6 +31,7 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 - 每位伙伴獨立上載私人回憶相片、描述、日期、標籤及展示規則
 - `embeddinggemma` + pgvector 語意檢索；對話可附上經登入權限保護的原相
 - 完整對話保存、滾動摘要及舊訊息向量召回，支援長期延續的對話
+- 裝置端廣東話朗讀、播放／停止、自動朗讀及有限情緒語速控制；不增加 server-side TTS model
 
 語音辨識現時使用瀏覽器 capability，未保證完全離線；正式 local-first STT 將接入 backend worker。圖片 RAG 及本機 Vision 自動 caption 已完成；PDF、音訊、影片、OCR 及完整 citation UI 尚待後續版本。
 

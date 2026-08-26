@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
-    _clean_repetition, _extract_memory_selection, _memory_candidates, _prompt,
+    _clean_repetition, _extract_memory_selection, _memory_candidates, _prepare_speech, _prompt,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
 )
@@ -210,6 +210,23 @@ class LongConversationTests(TestCase):
 
     def test_simplified_model_output_is_converted_to_hong_kong_traditional(self):
         self.assertEqual(_to_hk_traditional("让我看看这个里面说了什么"), "讓我看看這個裏面說了甚麼")
+
+    def test_spoken_text_removes_stage_directions_and_uses_allowed_emotion(self):
+        display, speech = _prepare_speech(
+            "（沉默咗一陣，低聲講）其實……我一直都想你。 😊\n[SPEECH_EMOTION:gentle]"
+        )
+        self.assertNotIn("SPEECH_EMOTION", display)
+        self.assertIn("（沉默咗一陣，低聲講）", display)
+        self.assertEqual(speech["emotion"], "gentle")
+        self.assertEqual(speech["lang"], "zh-HK")
+        self.assertNotIn("沉默咗一陣", speech["text"])
+        self.assertNotIn("😊", speech["text"])
+        self.assertIn("其實，我一直都想你。", speech["text"])
+
+    def test_unknown_speech_emotion_falls_back_to_neutral(self):
+        display, speech = _prepare_speech("你好。\n[SPEECH_EMOTION:angry]")
+        self.assertEqual(display, "你好。")
+        self.assertEqual(speech["emotion"], "neutral")
 
     def test_old_semantic_message_can_be_recalled(self):
         old = Message.objects.create(

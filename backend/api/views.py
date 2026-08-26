@@ -239,6 +239,9 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         "所有回答只可使用香港繁體中文，禁止輸出簡體中文字；即使用戶輸入簡體字亦要以繁體字回答。"
         "每次回答保持自然精簡，通常2至5句；除非用戶明確要求詳細解釋，否則不要寫長篇獨白。"
         "禁止連續重複同一詞語、句子、動作描寫或省略號。"
+        "請按回答語氣，只在回答最後另起一行加入以下其中一個標記："
+        "[SPEECH_EMOTION:neutral]、[SPEECH_EMOTION:gentle]、[SPEECH_EMOTION:sad]、"
+        "[SPEECH_EMOTION:happy] 或 [SPEECH_EMOTION:serious]。標記不屬於回答正文。"
     )
     return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
@@ -328,6 +331,23 @@ def _clean_repetition(text):
         cleaned = collapsed
     return cleaned.strip()
 
+
+def _prepare_speech(answer):
+    emotion_pattern = re.compile(r"\[SPEECH_EMOTION:([a-z]+)\]")
+    requested = emotion_pattern.findall(answer)
+    emotions = {"neutral", "gentle", "sad", "happy", "serious"}
+    emotion = requested[-1] if requested and requested[-1] in emotions else "neutral"
+    display_text = emotion_pattern.sub("", answer).strip()
+    spoken_text = re.sub(r"（[^）\n]{0,160}）|\([^()\n]{0,160}\)", "", display_text)
+    spoken_text = re.sub(r"```.*?```|`([^`]*)`", r"\1", spoken_text, flags=re.DOTALL)
+    spoken_text = re.sub(r"https?://\S+|www\.\S+", "", spoken_text)
+    spoken_text = re.sub(r"[*_#>]", "", spoken_text)
+    spoken_text = re.sub(r"[\U0001F1E6-\U0001FAFF\u2600-\u27BF]", "", spoken_text)
+    spoken_text = re.sub(r"(?:\.{3,}|…{2,})", "，", spoken_text)
+    spoken_text = re.sub(r"[ \t]+", " ", spoken_text)
+    spoken_text = re.sub(r"\n{2,}", "\n", spoken_text).strip()
+    return display_text, {"text": spoken_text, "emotion": emotion, "lang": "zh-HK"}
+
 @api_view(["POST"])
 def send_message(request, conversation_id):
     conversation = get_object_or_404(Conversation.objects.select_related("character__owner__profile"), id=conversation_id, character__owner=request.user)
@@ -365,10 +385,14 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
+    answer, speech = _prepare_speech(answer)
     attachments = []
     if memory_asset:
         attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
-    msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata={"attachments": attachments} if attachments else {})
+    message_metadata = {"speech": speech}
+    if attachments:
+        message_metadata["attachments"] = attachments
+    msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=message_metadata)
     try:
         msg.embedding = _embedding(answer)
         msg.embedding_model = settings.EMBEDDING_MODEL

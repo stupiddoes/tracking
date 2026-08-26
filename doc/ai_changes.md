@@ -18,6 +18,7 @@
 | 回覆長度 | 每次最多 320 output tokens；不限制 conversation 總長度 |
 | 防重複 | Ollama repeat penalty + backend repetition cleanup |
 | 中文輸出 | Prompt 禁止簡體 + OpenCC `s2t` 標準繁體正規化 + 香港用詞修正 |
+| 語音輸出 | Browser `speechSynthesis` 使用裝置 `zh-HK` 聲線；backend 產生清理後 spoken text 及有限情緒 metadata |
 | 成人模式 | 帳戶 18+ 確認及伙伴開關同時成立才加入成人 prompt |
 | Memorial 模式 | 不可聲稱自己是死者、死者復活或親身記得相片事件 |
 
@@ -51,7 +52,7 @@
 
 | 檔案 | AI 相關內容 |
 |---|---|
-| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、prompt、圖片候選檢索、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換及錯誤回應 |
+| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、prompt、圖片候選檢索、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換、spoken text／emotion metadata 及錯誤回應 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
@@ -107,6 +108,30 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-08-26 — 廣東話朗讀及情緒表達
+
+**Commit title：** `Add emotional Cantonese speech playback`
+
+改動：
+
+- Gemma 3 在同一次回答選擇 `neutral`、`gentle`、`sad`、`happy` 或 `serious` 情緒；不增加第二次模型 request。
+- Backend 從畫面回答建立獨立 spoken text，移除舞台指示、Markdown、網址、emoji、省略號及內部 markers。
+- Frontend 使用裝置 Browser Speech Synthesis，只選 `zh-HK`／`yue-HK` 聲線，不 fallback 到普通話。
+- 回答提供播放／停止按鈕，設定頁提供預設關閉的自動朗讀。
+- 長文字最多以 120 字片段依次播放；切換伙伴、登出或關閉自動播放會取消語音 queue。
+- `display_text` 保持原文；語音版本不可改變 Memorial grounding 或聲稱是真人／死者聲線。
+
+Server 資源：不新增 server-side TTS model，持續 RAM 增量近乎零；音訊由用戶裝置合成。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `frontend/src/App.tsx`
+- `frontend/src/memory.css`
+- `doc/ai_changes.md`
+- `README.md`
 
 ### 2026-08-26 — 強制標準繁體中文
 
