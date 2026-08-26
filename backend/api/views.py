@@ -9,6 +9,7 @@ from django.http import FileResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from pgvector.django import CosineDistance
+from opencc import OpenCC
 from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -19,6 +20,13 @@ from rest_framework.response import Response
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
+
+_STANDARD_TRADITIONAL = OpenCC("s2t")
+
+
+def _to_hk_traditional(text):
+    converted = _STANDARD_TRADITIONAL.convert(text)
+    return converted.replace("夥伴", "伙伴").replace("什麼", "甚麼")
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
@@ -94,7 +102,7 @@ def _vision_caption(image_field):
             },
         )
         response.raise_for_status()
-        return response.json()["message"]["content"].strip()
+        return _to_hk_traditional(response.json()["message"]["content"].strip())
 
 
 class MemoryAssetViewSet(viewsets.ModelViewSet):
@@ -228,6 +236,7 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         excerpts = "\n".join(f"{message.get_role_display()}：{message.content[:500]}" for message in recalled_messages)
         long_term_policy += f"語意檢索到的較早對話片段：\n{excerpts}\n"
     response_style = (
+        "所有回答只可使用香港繁體中文，禁止輸出簡體中文字；即使用戶輸入簡體字亦要以繁體字回答。"
         "每次回答保持自然精簡，通常2至5句；除非用戶明確要求詳細解釋，否則不要寫長篇獨白。"
         "禁止連續重複同一詞語、句子、動作描寫或省略號。"
     )
@@ -292,7 +301,7 @@ def _refresh_conversation_summary(conversation):
             },
         )
         response.raise_for_status()
-        conversation.summary = response.json()["message"]["content"].strip()
+        conversation.summary = _to_hk_traditional(response.json()["message"]["content"].strip())
         conversation.summarized_message_count += len(batch)
         conversation.save(update_fields=("summary", "summarized_message_count"))
 
@@ -354,7 +363,7 @@ def send_message(request, conversation_id):
             answer = response.json()["message"]["content"]
     except (httpx.HTTPError, KeyError, ValueError):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
-    answer = _clean_repetition(answer)
+    answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
     attachments = []
     if memory_asset:

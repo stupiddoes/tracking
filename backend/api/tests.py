@@ -14,6 +14,7 @@ from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_repetition, _extract_memory_selection, _memory_candidates, _prompt,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
+    _to_hk_traditional,
 )
 
 
@@ -207,6 +208,9 @@ class LongConversationTests(TestCase):
         self.assertLessEqual(cleaned.count("等我"), 2)
         self.assertIn("然後再講。", cleaned)
 
+    def test_simplified_model_output_is_converted_to_hong_kong_traditional(self):
+        self.assertEqual(_to_hk_traditional("让我看看这个里面说了什么"), "讓我看看這個裏面說了甚麼")
+
     def test_old_semantic_message_can_be_recalled(self):
         old = Message.objects.create(
             conversation=self.conversation,
@@ -254,3 +258,4 @@ class LongConversationTests(TestCase):
         self.assertIn("較早對話摘要", prompt)
         self.assertIn("以前約定一齊去旅行", prompt)
         self.assertIn("通常2至5句", prompt)
+        self.assertIn("禁止輸出簡體中文字", prompt)
