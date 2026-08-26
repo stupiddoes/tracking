@@ -2,7 +2,7 @@
 
 呢份文件用本項目現有程式碼，解釋 RAG、embedding、PostgreSQL／pgvector，以及圖片回憶如何由上載到出現在對話。目標係讀完之後，你可以理解、操作、檢查及逐步改良現有系統。
 
-> 現況提示：目前已實作的是「圖片 metadata RAG」——系統把用戶輸入的相片描述（caption）及標籤（tags）轉成向量。它尚未使用 vision model 直接分析圖片像素；`tech_spec.md` 所述的 PDF、音訊、documents／chunks 完整 ingestion pipeline 是下一階段設計。
+> 現況提示：目前已實作的是圖片回憶 RAG。系統以本機 Gemma 3 Vision 客觀分析圖片，再把 vision caption、用戶描述及標籤一併轉成向量；`tech_spec.md` 所述的 PDF、音訊、documents／chunks 完整 ingestion pipeline 仍是下一階段設計。
 
 ## 1. RAG 是什麼？
 
@@ -143,9 +143,11 @@ Backend 檢查結果必須剛好有 768 維，然後把 vector 及 model 名稱�
 3. 檢查訊息有沒有相片／回憶意圖詞，例如「相」、「圖片」、「記得」、「以前」或 `show me`。
 4. 先以 `owner`、`character`、展示規則及 18+ 狀態過濾可用素材。
 5. 把用戶訊息轉成 768 維 query vector。
-6. 用 cosine distance 排序，選擇第一項。
-7. 把 caption、tags、日期加入 Gemma 3 system prompt。
-8. 回覆 metadata 加入受權限保護的圖片 URL，frontend 再用登入 token 讀取原圖。
+6. 用 cosine distance 排序，只保留 threshold 內最多 3 項候選。
+7. 把候選的用戶描述、vision caption、tags、日期及展示規則加入 Gemma 3 system prompt。
+8. Gemma 3 判斷圖片是否實質幫助當前對話；如選圖，以隱藏 marker 回傳候選 ID。
+9. Backend 移除 marker，並驗證 ID 必須屬於候選白名單。
+10. 回覆 metadata 加入受權限保護的圖片 URL，frontend 再用登入 token 讀取原圖及顯示「你保存嘅回憶」。
 
 這個次序非常重要：**權限過濾先於向量排名**。Vector 相似度只負責相關性，不可以用來判斷用戶有沒有權限。
 
@@ -157,7 +159,7 @@ Backend 檢查結果必須剛好有 768 維，然後把 vector 及 model 名稱�
 | `related` | 對話提到相關回憶時可以主動附圖 |
 | `never` | 保存及索引，但不會在對話展示 |
 
-如果 embedding service 暫時失敗，現有程式會 fallback 到符合權限及規則的最新一張相，而不是令整個 chat request 失敗。
+如果 embedding service 暫時失敗，系統不會附圖，但文字對話仍可繼續；它不會隨便 fallback 到最新圖片，以免發出不相關或不應展示的回憶。
 
 ## 5. 本機操作
 
@@ -243,7 +245,7 @@ print(a.id if a else None, a.caption if a else None)
 
 ## 6. 如何寫出容易被搜尋到的回憶
 
-現階段 embedding 只讀 caption 及 tags，所以資料質素比單純堆很多標籤更重要。
+現階段 embedding 會讀 vision caption、用戶 caption 及 tags。Vision 只能描述可見內容，通常不知道人物身份、準確地點及相片背後故事，所以用戶補充資料仍然十分重要。
 
 較弱：
 
@@ -289,7 +291,7 @@ docker compose exec ollama ollama list
 
 ### 結果相關性不好
 
-先改善 caption／tags，再考慮演算法。現有版本沒有最低相似度 threshold，只要有合資格且已建立向量的素材，就會選距離最小的一項。資料增多後，應記錄距離分布，再以真實測試集決定 threshold，而不是隨意猜一個數值。
+先改善 caption／tags，再考慮演算法。現有版本預設 `MEMORY_MAX_COSINE_DISTANCE=0.45`，並最多取 `MEMORY_RETRIEVAL_TOP_K=3`。這是安全起點，不是永久最佳值；資料增多後，應記錄距離分布，再以真實測試集調整，而不是隨意猜數值。
 
 ### 更新 embedding model 後出錯
 
@@ -314,20 +316,20 @@ docker compose exec ollama ollama list
 
 目前實作簡單而可運作，但仍有以下限制：
 
-- 只對 caption／tags 建 embedding，沒有 OCR、vision captioning、PDF 或音訊轉錄。
-- 每次最多選一張相片，沒有 top-k context assembly。
-- 沒有 similarity threshold、retrieval score logging 或 citation table。
+- 已有 vision caption，但沒有 OCR、PDF 或音訊轉錄；模型亦不能可靠辨認人物身份。
+- Top-k 候選目前最多 3 張，但每次回覆最多只展示一張。
+- 已有 similarity threshold，但仍沒有 retrieval score logging 或 citation table。
 - 上載時同步建立 embedding；大量檔案應改由 Celery job 處理。
 - Embedding 失敗後沒有自動 retry／re-index queue。
 - 尚未建立 HNSW index；小型資料庫用 exact search 合理，數量增長後才應 benchmark。
-- 關鍵詞 gate 可能漏掉沒有使用指定詞彙、但語意上想看回憶的訊息。
+- 每段允許的訊息都會做 embedding retrieval，資料量及流量增加後要加入 cache／metrics 評估成本。
 
 ## 10. 建議學習及改良次序
 
 1. **觀察 vectors**：用相似及不相似句子產生 embedding，比較 cosine distance。
 2. **建立小型評測集**：準備約 20 個回憶及 30 條問題，標記每題應召回哪項。
 3. **加入 score logging**：記錄 top results 及 distance，不記錄不必要的私人原文。
-4. **加入 threshold／top-k**：用評測結果調整，不靠直覺。
+4. **調校 threshold／top-k**：用評測結果調整現有預設值，不靠直覺。
 5. **抽出 RAG service**：把 embedding、filter、ranking、fallback 從 `views.py` 移到獨立 service。
 6. **非同步 indexing**：由 Celery 建立及重建 embeddings，顯示 processing 狀態。
 7. **完整 ingestion**：加入 documents、chunks、OCR、PDF text extraction 及音訊 transcript。

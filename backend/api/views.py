@@ -1,5 +1,7 @@
-import json
+import base64
+from io import BytesIO
 import mimetypes
+import re
 import httpx
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
@@ -7,6 +9,7 @@ from django.http import FileResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from pgvector.django import CosineDistance
+from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -59,6 +62,41 @@ def _embedding(text):
         return vector
 
 
+def _vision_caption(image_field):
+    image_field.open("rb")
+    try:
+        with Image.open(image_field) as source:
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((1600, 1600))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            encoded = BytesIO()
+            image.save(encoded, format="JPEG", quality=85, optimize=True)
+    finally:
+        image_field.close()
+    prompt = (
+        "請用繁體中文客觀描述這張由用戶保存的回憶相片，供私人語意搜尋使用。"
+        "只描述可見的人物、動物、物件、環境、活動及氣氛；不要辨認身份、猜測敏感屬性、"
+        "虛構日期地點或聲稱你親身記得。直接輸出一段不超過120字的描述。"
+    )
+    with httpx.Client(timeout=120) as client:
+        response = client.post(
+            f"{settings.OLLAMA_BASE_URL}/api/chat",
+            json={
+                "model": settings.CHAT_MODEL,
+                "messages": [{
+                    "role": "user",
+                    "content": prompt,
+                    "images": [base64.b64encode(encoded.getvalue()).decode("ascii")],
+                }],
+                "stream": False,
+                "options": {"temperature": 0.2, "num_predict": 180},
+            },
+        )
+        response.raise_for_status()
+        return response.json()["message"]["content"].strip()
+
+
 class MemoryAssetViewSet(viewsets.ModelViewSet):
     serializer_class = MemoryAssetSerializer
     parser_classes = (MultiPartParser, FormParser)
@@ -72,11 +110,19 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         asset = serializer.save(owner=self.request.user)
         try:
-            asset.embedding = _embedding(f"{asset.caption}\n標籤：{asset.tags}")
+            asset.generated_caption = _vision_caption(asset.image)
+        except (httpx.HTTPError, KeyError, ValueError, OSError):
+            asset.generated_caption = ""
+        if not asset.caption:
+            asset.caption = asset.generated_caption or "未有文字描述的回憶相片"
+        try:
+            asset.embedding = _embedding(
+                f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
+            )
             asset.embedding_model = settings.EMBEDDING_MODEL
-            asset.save(update_fields=("embedding", "embedding_model"))
         except (httpx.HTTPError, KeyError, IndexError, ValueError):
             pass
+        asset.save(update_fields=("caption", "generated_caption", "embedding", "embedding_model"))
 
     def perform_destroy(self, instance):
         storage, name = instance.image.storage, instance.image.name
@@ -146,7 +192,7 @@ def conversations(request, character_id):
     convo = Conversation.objects.create(character=character)
     return Response(ConversationSerializer(convo).data, status=status.HTTP_201_CREATED)
 
-def _prompt(character, history, memory_context=""):
+def _prompt(character, history, memory_candidates=()):
     mode = "回憶連結" if character.mode == Character.Mode.MEMORIAL else "幻想伙伴"
     grounding = "不可聲稱自己係死者本人或真正復活；沒有來源支持時坦白講不知道。" if character.mode == Character.Mode.MEMORIAL else "可以沉浸演繹角色，但不可用威脅、內疚、付款或私隱阻止用戶退出。"
     adult_policy = ""
@@ -157,31 +203,54 @@ def _prompt(character, history, memory_context=""):
             "只要所有互動自願，而且沒有脅迫、剝削、亂倫或未成年人，便保持角色語氣自然回應，"
             "不要說教、建議求助、列出熱線或提及AI政策。遇到不安全內容時，用簡短、角色化方式設定界線。"
         )
-    memory_policy = f"用戶保存咗以下回憶素材：{memory_context}。只可根據呢段資料描述相片，不可聲稱自己親身記得。" if memory_context else ""
+    memory_policy = ""
+    if memory_candidates:
+        candidate_lines = []
+        for asset in memory_candidates:
+            candidate_lines.append(
+                f"ID={asset.id}；展示規則={asset.display_policy}；用戶描述={asset.caption}；"
+                f"圖片分析={asset.generated_caption or '未提供'}；標籤={asset.tags or '未提供'}；"
+                f"日期={asset.captured_at or '未提供'}"
+            )
+        memory_policy = (
+            "以下是系統按語意及權限篩選出的候選相片，全部都是用戶保存的私人回憶，不是你的親身記憶：\n"
+            + "\n".join(candidate_lines)
+            + "\n只有在相片能實質幫助當前對話時才附圖；展示規則 related 可在自然相關時使用，"
+            "on_request 只可在用戶確實要求查看、發送或展示相片時使用。不要為了增加氣氛而亂附圖。"
+            "如決定附圖，先在回答中自然說明這是用戶保存的回憶，例如『你之前保存咗呢張相，睇吓。』，"
+            "然後只在回答最後另起一行輸出 [SHOW_MEMORY:候選ID]。如不附圖，不可輸出標記。"
+            "回憶連結模式尤其不可說『我記得當日』、不可聲稱親歷相片事件或把自己當成死者本人。"
+        )
     return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {memory_policy} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
 
-def _select_memory_image(character, content):
-    explicit_terms = ("相", "照片", "圖片", "photo", "picture", "睇下", "show me")
-    related_terms = explicit_terms + ("記得", "以前", "回憶", "嗰日", "當年")
-    lowered = content.lower()
-    explicit = any(term in lowered for term in explicit_terms)
-    if not any(term in lowered for term in related_terms):
-        return None
+def _memory_candidates(character, content):
     assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
-    if not explicit:
-        assets = assets.filter(display_policy=MemoryAsset.DisplayPolicy.RELATED)
     profile = getattr(character.owner, "profile", None)
     if not (character.adult_content_enabled and profile and profile.adult_confirmed):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
-    if not assets.exists():
-        return None
     try:
         vector = _embedding(content)
-        ranked = assets.exclude(embedding__isnull=True).annotate(distance=CosineDistance("embedding", vector)).order_by("distance")
-        return ranked.first() or assets.order_by("-created_at").first()
+        ranked = assets.exclude(embedding__isnull=True).annotate(
+            distance=CosineDistance("embedding", vector)
+        ).filter(distance__lte=settings.MEMORY_MAX_COSINE_DISTANCE).order_by("distance")
+        return list(ranked[:settings.MEMORY_RETRIEVAL_TOP_K])
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
-        return assets.order_by("-created_at").first()
+        return []
+
+
+def _select_memory_image(character, content):
+    candidates = _memory_candidates(character, content)
+    return candidates[0] if candidates else None
+
+
+def _extract_memory_selection(answer, candidates):
+    marker = re.compile(r"\[SHOW_MEMORY:([0-9a-fA-F-]{36})\]")
+    selected_ids = marker.findall(answer)
+    cleaned = marker.sub("", answer).strip()
+    allowed = {str(asset.id): asset for asset in candidates}
+    selected = allowed.get(selected_ids[-1]) if selected_ids else None
+    return cleaned, selected
 
 @api_view(["POST"])
 def send_message(request, conversation_id):
@@ -196,19 +265,17 @@ def send_message(request, conversation_id):
         return Response({"message": {"id": msg.id, "role": msg.role, "content": msg.content, "metadata": msg.metadata}, "guardrail": decision.action})
     recent = list(conversation.messages.all().order_by("-created_at")[:20])
     history = [{"role": m.role, "content": m.content} for m in reversed(recent)]
-    memory_asset = _select_memory_image(conversation.character, content)
-    memory_context = ""
-    if memory_asset:
-        memory_context = f"相片描述：{memory_asset.caption}；標籤：{memory_asset.tags}；日期：{memory_asset.captured_at or '未提供'}"
+    memory_candidates = _memory_candidates(conversation.character, content)
     try:
         with httpx.Client(timeout=120) as client:
-            response = client.post(f"{settings.OLLAMA_BASE_URL}/api/chat", json={"model": settings.CHAT_MODEL, "messages": _prompt(conversation.character, history, memory_context), "stream": False, "options": {"temperature": 0.5}})
+            response = client.post(f"{settings.OLLAMA_BASE_URL}/api/chat", json={"model": settings.CHAT_MODEL, "messages": _prompt(conversation.character, history, memory_candidates), "stream": False, "options": {"temperature": 0.5, "num_predict": 512}})
             response.raise_for_status()
             answer = response.json()["message"]["content"]
     except (httpx.HTTPError, KeyError, ValueError):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
+    answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
     attachments = []
     if memory_asset:
-        attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption})
+        attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
     msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata={"attachments": attachments} if attachments else {})
     return Response({"message": {"id": msg.id, "role": msg.role, "content": msg.content, "metadata": msg.metadata, "attachments": attachments}})

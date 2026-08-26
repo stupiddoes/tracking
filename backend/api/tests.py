@@ -11,7 +11,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from .models import Character, MemoryAsset, Profile
-from .views import _prompt, _select_memory_image
+from .views import _extract_memory_selection, _memory_candidates, _prompt, _select_memory_image
 
 
 class AdultModeTests(TestCase):
@@ -93,8 +93,9 @@ class MemoryAssetTests(TestCase):
         Image.new("RGB", (8, 8), "white").save(data, format="HEIF")
         return SimpleUploadedFile("memory.heic", data.getvalue(), content_type="image/heic")
 
+    @patch("api.views._vision_caption", return_value="相中見到海旁同生日蛋糕")
     @patch("api.views._embedding", return_value=[0.1] * 768)
-    def test_upload_is_embedded_and_private(self, _embedding_mock):
+    def test_upload_is_embedded_and_private(self, _embedding_mock, _vision_mock):
         response = self.client.post("/api/v1/memory-assets/", {
             "character": str(self.character.id),
             "image": self.image(),
@@ -105,6 +106,7 @@ class MemoryAssetTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         asset = MemoryAsset.objects.get()
         self.assertEqual(len(asset.embedding), 768)
+        self.assertEqual(asset.generated_caption, "相中見到海旁同生日蛋糕")
 
         stranger = get_user_model().objects.create_user(username="stranger", password="testing-password")
         stranger_token = Token.objects.create(user=stranger)
@@ -112,8 +114,9 @@ class MemoryAssetTests(TestCase):
         denied = self.client.get(f"/api/v1/memory-assets/{asset.id}/content/")
         self.assertEqual(denied.status_code, 404)
 
+    @patch("api.views._vision_caption", return_value="一張由 iPhone 拍攝的相片")
     @patch("api.views._embedding", return_value=[0.1] * 768)
-    def test_heic_upload_is_accepted(self, _embedding_mock):
+    def test_heic_upload_is_accepted(self, _embedding_mock, _vision_mock):
         response = self.client.post("/api/v1/memory-assets/", {
             "character": str(self.character.id),
             "image": self.heic_image(),
@@ -121,6 +124,20 @@ class MemoryAssetTests(TestCase):
         }, format="multipart")
         self.assertEqual(response.status_code, 201, response.data)
         self.assertTrue(MemoryAsset.objects.get().image.name.endswith(".heic"))
+
+    @patch("api.views._vision_caption", return_value="兩個人在公園野餐")
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_vision_caption_can_supply_missing_user_caption(self, _embedding_mock, _vision_mock):
+        response = self.client.post("/api/v1/memory-assets/", {
+            "character": str(self.character.id),
+            "image": self.image(),
+            "caption": "",
+        }, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        asset = MemoryAsset.objects.get()
+        self.assertEqual(asset.caption, "兩個人在公園野餐")
+        embedded_text = _embedding_mock.call_args.args[0]
+        self.assertIn("圖片內容：兩個人在公園野餐", embedded_text)
 
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_related_memory_can_be_retrieved(self, _embedding_mock):
@@ -134,3 +151,43 @@ class MemoryAssetTests(TestCase):
         )
         selected = _select_memory_image(self.character, "記唔記得以前去長洲？")
         self.assertEqual(selected, asset)
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_retrieval_returns_ranked_candidates_without_keyword_gate(self, _embedding_mock):
+        on_request = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲海邊",
+            display_policy="on_request", embedding=[0.1] * 768,
+        )
+        MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="不展示",
+            display_policy="never", embedding=[0.1] * 768,
+        )
+        candidates = _memory_candidates(self.character, "嗰個有海風吹過嘅地方")
+        self.assertIn(on_request, candidates)
+        self.assertEqual(len(candidates), 1)
+
+    def test_model_can_only_select_an_allowed_candidate(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲海邊",
+            display_policy="related", embedding=[0.1] * 768,
+        )
+        answer, selected = _extract_memory_selection(
+            f"你之前保存咗呢張相，睇吓。\n[SHOW_MEMORY:{asset.id}]", [asset]
+        )
+        self.assertEqual(answer, "你之前保存咗呢張相，睇吓。")
+        self.assertEqual(selected, asset)
+
+        answer, selected = _extract_memory_selection(
+            "呢個 ID 唔屬於候選。\n[SHOW_MEMORY:11111111-1111-1111-1111-111111111111]", [asset]
+        )
+        self.assertNotIn("SHOW_MEMORY", answer)
+        self.assertIsNone(selected)
+
+    def test_memorial_prompt_labels_assets_as_user_saved_memories(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲海邊",
+            generated_caption="海邊有兩個人", display_policy="related", embedding=[0.1] * 768,
+        )
+        system_prompt = _prompt(self.character, [], [asset])[0]["content"]
+        self.assertIn("用戶保存的私人回憶", system_prompt)
+        self.assertIn("不可說『我記得當日』", system_prompt)

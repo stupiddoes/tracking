@@ -70,6 +70,7 @@ class MemoryAsset(models.Model):
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="memory_assets")
     image = models.ImageField(upload_to=memory_image_path)
     caption = models.TextField()
+    generated_caption = models.TextField(blank=True)
     tags = models.CharField(max_length=500, blank=True)
     captured_at = models.DateField(null=True, blank=True)
     sensitivity = models.CharField(max_length=16, choices=Sensitivity.choices, default=Sensitivity.ORDINARY)

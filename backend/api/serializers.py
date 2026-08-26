@@ -37,11 +37,14 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = MemoryAsset
         fields = (
-            "id", "character", "image", "caption", "tags", "captured_at",
+            "id", "character", "image", "caption", "generated_caption", "tags", "captured_at",
             "sensitivity", "display_policy", "content_url", "created_at",
         )
-        read_only_fields = ("id", "content_url", "created_at")
-        extra_kwargs = {"image": {"write_only": True}}
+        read_only_fields = ("id", "generated_caption", "content_url", "created_at")
+        extra_kwargs = {
+            "image": {"write_only": True},
+            "caption": {"required": False, "allow_blank": True},
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

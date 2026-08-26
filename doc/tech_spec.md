@@ -213,7 +213,7 @@ MVP 不要求輸入真實出生日期，只儲存年齡組別。`under_13` 預�
 
 MVP 的 vector database 採用 **PostgreSQL 17 + pgvector**，不另外部署 Pinecone、Qdrant、Chroma 或其他獨立向量服務。一般關聯資料、素材 metadata、chunks、embeddings 及 ownership constraints 均在同一個 PostgreSQL transaction boundary 內管理。
 
-Embedding 使用現有 Ollama 的 `embeddinggemma:latest`：
+Embedding 使用現有 Ollama 的 `embeddinggemma:latest`。圖片上載時先由本機 Gemma 3 Vision 產生客觀 caption，再把 vision caption、用戶描述及 tags 一併建立索引；原圖不會傳送到外部服務：
 
 ```text
 provider: Ollama

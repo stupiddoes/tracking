@@ -36,5 +36,5 @@ class MessageAdmin(admin.ModelAdmin):
 class MemoryAssetAdmin(admin.ModelAdmin):
     list_display = ("caption", "owner", "character", "sensitivity", "display_policy", "captured_at", "created_at")
     list_filter = ("sensitivity", "display_policy", "created_at")
-    search_fields = ("caption", "tags", "owner__username", "character__name")
-    readonly_fields = ("embedding", "embedding_model", "created_at")
+    search_fields = ("caption", "generated_caption", "tags", "owner__username", "character__name")
+    readonly_fields = ("generated_caption", "embedding", "embedding_model", "created_at")
