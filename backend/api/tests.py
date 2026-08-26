@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_display_markdown, _clean_repetition, _extract_memory_selection, _memory_candidates,
-    _prepare_speech, _prompt, _replace_meta_refusal,
+    _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
 )
@@ -63,14 +63,16 @@ class AdultModeTests(TestCase):
             adult_content_enabled=True,
         )
         ordinary_prompt = _prompt(character, [])[0]["content"]
-        self.assertNotIn("不要因為內容涉及成人戀愛", ordinary_prompt)
+        self.assertNotIn("露骨性內容均屬允許範圍", ordinary_prompt)
 
         from django.utils import timezone
 
         profile.adult_confirmed_at = timezone.now()
         profile.save(update_fields=["adult_confirmed_at"])
         enabled_prompt = _prompt(character, [])[0]["content"]
-        self.assertIn("不要因為內容涉及成人戀愛", enabled_prompt)
+        self.assertIn("露骨性內容均屬允許範圍", enabled_prompt)
+        self.assertIn("不可只因內容涉及性而拒絕", enabled_prompt)
+        self.assertIn("沒有脅迫、剝削、亂倫或未成年人", enabled_prompt)
 
 
 class MemoryAssetTests(TestCase):
@@ -212,23 +214,6 @@ class LongConversationTests(TestCase):
     def test_simplified_model_output_is_converted_to_hong_kong_traditional(self):
         self.assertEqual(_to_hk_traditional("让我看看这个里面说了什么"), "讓我看看這個裏面說了甚麼")
 
-    def test_spoken_text_removes_stage_directions_and_uses_allowed_emotion(self):
-        display, speech = _prepare_speech(
-            "（沉默咗一陣，低聲講）其實……我一直都想你。 😊\n[SPEECH_EMOTION:gentle]"
-        )
-        self.assertNotIn("SPEECH_EMOTION", display)
-        self.assertIn("（沉默咗一陣，低聲講）", display)
-        self.assertEqual(speech["emotion"], "gentle")
-        self.assertEqual(speech["lang"], "zh-HK")
-        self.assertNotIn("沉默咗一陣", speech["text"])
-        self.assertNotIn("😊", speech["text"])
-        self.assertIn("其實，我一直都想你。", speech["text"])
-
-    def test_unknown_speech_emotion_falls_back_to_neutral(self):
-        display, speech = _prepare_speech("你好。\n[SPEECH_EMOTION:angry]")
-        self.assertEqual(display, "你好。")
-        self.assertEqual(speech["emotion"], "neutral")
-
     def test_mechanical_model_safety_warning_is_replaced_in_character(self):
         answer, replaced = _replace_meta_refusal(
             "（冰冷、機械的聲音）警告：互動已超出安全限制。此對話已被終止。"
@@ -238,7 +223,7 @@ class LongConversationTests(TestCase):
         self.assertNotIn("安全限制", answer)
         self.assertNotIn("對話已被終止", answer)
         self.assertIn("我仍然喺度陪你傾", answer)
-        self.assertIn("SPEECH_EMOTION:serious", answer)
+        self.assertNotIn("SPEECH_EMOTION", answer)
 
     def test_plain_text_display_does_not_show_markdown_markers(self):
         self.assertEqual(_clean_display_markdown("**警告**\n### 標題\n`內容`"), "警告\n標題\n內容")

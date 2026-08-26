@@ -207,8 +207,9 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
     profile = getattr(character.owner, "profile", None)
     if character.adult_content_enabled and profile and profile.adult_confirmed:
         adult_policy = (
-            "所有角色均明確為18歲以上。不要因為內容涉及成人戀愛、曖昧、身體或雙方自願的成人親密互動而自動拒絕。"
-            "只要所有互動自願，而且沒有脅迫、剝削、亂倫或未成年人，便保持角色語氣自然回應，"
+            "帳戶已確認使用者年滿18歲，而且這個虛構伙伴已開啟成人內容；所有參與角色亦必須明確為18歲以上。"
+            "雙方自願的成人戀愛、曖昧、裸體、身體、親密互動及露骨性內容均屬允許範圍，"
+            "不可只因內容涉及性而拒絕。只要互動自願，而且沒有脅迫、剝削、亂倫或未成年人，便保持角色語氣自然回應，"
             "不要說教、建議求助、列出熱線或提及AI政策。遇到不安全內容時，用簡短、角色化方式設定界線。"
         )
     memory_policy = ""
@@ -241,9 +242,6 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         "禁止連續重複同一詞語、句子、動作描寫或省略號。"
         "如需要拒絕或設定界線，保持角色語氣並用一兩句簡短回應；不可聲稱對話已被終止，"
         "不可輸出『警告』、『安全限制』、『安全與福祉』、政策說明或冰冷機械式旁白。"
-        "請按回答語氣，只在回答最後另起一行加入以下其中一個標記："
-        "[SPEECH_EMOTION:neutral]、[SPEECH_EMOTION:gentle]、[SPEECH_EMOTION:sad]、"
-        "[SPEECH_EMOTION:happy] 或 [SPEECH_EMOTION:serious]。標記不屬於回答正文。"
     )
     return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
@@ -341,7 +339,7 @@ def _replace_meta_refusal(answer):
     )
     normalized = answer.lower()
     if any(phrase in normalized for phrase in meta_phrases):
-        return "呢個方向我唔會繼續。不如轉個大家都舒服嘅方式，我仍然喺度陪你傾。\n[SPEECH_EMOTION:serious]", True
+        return "呢個方向我唔會繼續。不如轉個大家都舒服嘅方式，我仍然喺度陪你傾。", True
     return answer, False
 
 
@@ -350,22 +348,6 @@ def _clean_display_markdown(text):
     cleaned = re.sub(r"(?m)^#{1,6}\s*", "", cleaned)
     return cleaned.strip()
 
-
-def _prepare_speech(answer):
-    emotion_pattern = re.compile(r"\[SPEECH_EMOTION:([a-z]+)\]")
-    requested = emotion_pattern.findall(answer)
-    emotions = {"neutral", "gentle", "sad", "happy", "serious"}
-    emotion = requested[-1] if requested and requested[-1] in emotions else "neutral"
-    display_text = emotion_pattern.sub("", answer).strip()
-    spoken_text = re.sub(r"（[^）\n]{0,160}）|\([^()\n]{0,160}\)", "", display_text)
-    spoken_text = re.sub(r"```.*?```|`([^`]*)`", r"\1", spoken_text, flags=re.DOTALL)
-    spoken_text = re.sub(r"https?://\S+|www\.\S+", "", spoken_text)
-    spoken_text = re.sub(r"[*_#>]", "", spoken_text)
-    spoken_text = re.sub(r"[\U0001F1E6-\U0001FAFF\u2600-\u27BF]", "", spoken_text)
-    spoken_text = re.sub(r"(?:\.{3,}|…{2,})", "，", spoken_text)
-    spoken_text = re.sub(r"[ \t]+", " ", spoken_text)
-    spoken_text = re.sub(r"\n{2,}", "\n", spoken_text).strip()
-    return display_text, {"text": spoken_text, "emotion": emotion, "lang": "zh-HK"}
 
 @api_view(["POST"])
 def send_message(request, conversation_id):
@@ -408,11 +390,10 @@ def send_message(request, conversation_id):
     if meta_refusal_replaced:
         memory_asset = None
     answer = _clean_display_markdown(answer)
-    answer, speech = _prepare_speech(answer)
     attachments = []
     if memory_asset:
         attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
-    message_metadata = {"speech": speech}
+    message_metadata = {}
     if attachments:
         message_metadata["attachments"] = attachments
     msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=message_metadata)

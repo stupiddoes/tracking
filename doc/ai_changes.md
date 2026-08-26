@@ -18,8 +18,8 @@
 | 回覆長度 | 每次最多 320 output tokens；不限制 conversation 總長度 |
 | 防重複 | Ollama repeat penalty + backend repetition cleanup |
 | 中文輸出 | Prompt 禁止簡體 + OpenCC `s2t` 標準繁體正規化 + 香港用詞修正 |
-| 語音輸出 | Browser `speechSynthesis` 使用裝置 `zh-HK` 聲線；backend 產生清理後 spoken text 及有限情緒 metadata |
-| 成人模式 | 帳戶 18+ 確認及伙伴開關同時成立才加入成人 prompt |
+| 語音輸出 | 已停用；frontend 不提供朗讀，backend 不再要求語音標記或產生 speech metadata |
+| 成人模式 | 帳戶 18+ 確認及幻想伙伴開關同時成立，才容許雙方自願的成人露骨內容 |
 | Memorial 模式 | 不可聲稱自己是死者、死者復活或親身記得相片事件 |
 
 ## 2. AI request flow
@@ -52,7 +52,7 @@
 
 | 檔案 | AI 相關內容 |
 |---|---|
-| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、prompt、圖片候選檢索、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換、spoken text／emotion metadata 及錯誤回應 |
+| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、prompt、圖片候選檢索、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換及錯誤回應 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
@@ -108,6 +108,27 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-08-26 — 停用朗讀並強化已確認 18+ 模式
+
+**Commit title：** `Disable speech and reinforce consented adult mode`
+
+改動：
+
+- 完全移除前端回答播放／停止、自動朗讀設定及 Browser Speech Synthesis 呼叫；語音輸入按鈕不受影響。
+- Backend 不再要求 Gemma 3 輸出 `SPEECH_EMOTION` 標記，亦不再為新回答保存 `speech` metadata。
+- 資料庫舊回答可能仍有歷史 `speech` metadata，但前端不會讀取或播放，毋須破壞性 migration。
+- 只有帳戶已確認 18+，而且幻想伙伴本身已開啟成人模式，prompt 才明確容許雙方自願的成人露骨內容，並禁止模型單純因為涉及性而自動拒絕。
+- 未成年人、脅迫、剝削及亂倫仍然是不可移除的硬性限制；Memorial 伙伴不可開啟成人模式。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `frontend/src/App.tsx`
+- `frontend/src/memory.css`
+- `doc/ai_changes.md`
+- `README.md`
 
 ### 2026-08-26 — 阻止機械式政策警告跳出角色
 
