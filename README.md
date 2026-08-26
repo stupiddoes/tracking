@@ -32,11 +32,11 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 - `embeddinggemma` + pgvector 語意檢索；對話可附上經登入權限保護的原相
 - 完整對話保存、滾動摘要及舊訊息向量召回，支援長期延續的對話
 
-語音辨識現時使用瀏覽器 capability，未保證完全離線；正式 local-first STT 將接入 backend worker。圖片 RAG 已完成第一個 vertical slice；PDF、音訊、影片、OCR、自動 caption 及完整 citation UI 尚待後續版本。
+語音辨識現時使用瀏覽器 capability，未保證完全離線；正式 local-first STT 將接入 backend worker。圖片 RAG 及本機 Vision 自動 caption 已完成；PDF、音訊、影片、OCR 及完整 citation UI 尚待後續版本。
 
 設計參考圖：[`design/chat-interface-v1.png`](./design/chat-interface-v1.png)
 
-技術文件：[`doc/tech_spec.md`](./doc/tech_spec.md) · [`doc/tech_howto.md`](./doc/tech_howto.md)（RAG／pgvector 實作教學）
+技術文件：[`doc/tech_spec.md`](./doc/tech_spec.md) · [`doc/tech_howto.md`](./doc/tech_howto.md)（RAG／pgvector 實作教學）· [`doc/ai_changes.md`](./doc/ai_changes.md)（AI 改動及檔案紀錄）
 
 ## 自動部署
 
