@@ -206,7 +206,7 @@ def send_message(request, conversation_id):
             response.raise_for_status()
             answer = response.json()["message"]["content"]
     except (httpx.HTTPError, KeyError, ValueError):
-        return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "本機 Gemma 3 暫時未能回答，請檢查模型是否已安裝。", "retryable": True}}, status=503)
+        return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     attachments = []
     if memory_asset:
         attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption})
