@@ -21,7 +21,7 @@ class CharacterAdmin(admin.ModelAdmin):
 class ConversationAdmin(admin.ModelAdmin):
     list_display = ("id", "character", "created_at")
     search_fields = ("character__name", "character__owner__username")
-    readonly_fields = ("created_at",)
+    readonly_fields = ("summary", "summarized_message_count", "created_at")
 
 
 @admin.register(Message)
@@ -29,7 +29,7 @@ class MessageAdmin(admin.ModelAdmin):
     list_display = ("id", "conversation", "role", "created_at")
     list_filter = ("role", "created_at")
     search_fields = ("content", "conversation__character__name", "conversation__character__owner__username")
-    readonly_fields = ("created_at",)
+    readonly_fields = ("embedding", "embedding_model", "created_at")
 
 
 @admin.register(MemoryAsset)

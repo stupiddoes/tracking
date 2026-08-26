@@ -192,7 +192,7 @@ def conversations(request, character_id):
     convo = Conversation.objects.create(character=character)
     return Response(ConversationSerializer(convo).data, status=status.HTTP_201_CREATED)
 
-def _prompt(character, history, memory_candidates=()):
+def _prompt(character, history, memory_candidates=(), conversation_summary="", recalled_messages=()):
     mode = "回憶連結" if character.mode == Character.Mode.MEMORIAL else "幻想伙伴"
     grounding = "不可聲稱自己係死者本人或真正復活；沒有來源支持時坦白講不知道。" if character.mode == Character.Mode.MEMORIAL else "可以沉浸演繹角色，但不可用威脅、內疚、付款或私隱阻止用戶退出。"
     adult_policy = ""
@@ -221,16 +221,26 @@ def _prompt(character, history, memory_candidates=()):
             "然後只在回答最後另起一行輸出 [SHOW_MEMORY:候選ID]。如不附圖，不可輸出標記。"
             "回憶連結模式尤其不可說『我記得當日』、不可聲稱親歷相片事件或把自己當成死者本人。"
         )
-    return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {memory_policy} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
+    long_term_policy = ""
+    if conversation_summary:
+        long_term_policy += f"較早對話摘要（只作背景，不可當成逐字引用）：{conversation_summary} "
+    if recalled_messages:
+        excerpts = "\n".join(f"{message.get_role_display()}：{message.content[:500]}" for message in recalled_messages)
+        long_term_policy += f"語意檢索到的較早對話片段：\n{excerpts}\n"
+    response_style = (
+        "每次回答保持自然精簡，通常2至5句；除非用戶明確要求詳細解釋，否則不要寫長篇獨白。"
+        "禁止連續重複同一詞語、句子、動作描寫或省略號。"
+    )
+    return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
 
-def _memory_candidates(character, content):
+def _memory_candidates(character, content, vector=None):
     assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
     profile = getattr(character.owner, "profile", None)
     if not (character.adult_content_enabled and profile and profile.adult_confirmed):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
     try:
-        vector = _embedding(content)
+        vector = vector or _embedding(content)
         ranked = assets.exclude(embedding__isnull=True).annotate(
             distance=CosineDistance("embedding", vector)
         ).filter(distance__lte=settings.MEMORY_MAX_COSINE_DISTANCE).order_by("distance")
@@ -252,6 +262,63 @@ def _extract_memory_selection(answer, candidates):
     selected = allowed.get(selected_ids[-1]) if selected_ids else None
     return cleaned, selected
 
+
+def _refresh_conversation_summary(conversation):
+    messages = list(conversation.messages.all().order_by("created_at"))
+    target_count = max(0, len(messages) - 16)
+    pending_count = target_count - conversation.summarized_message_count
+    if pending_count < 8:
+        return
+    batch = messages[conversation.summarized_message_count:target_count][:12]
+    transcript = "\n".join(
+        f"{message.get_role_display()}：{message.content[:500]}" for message in batch
+    )
+    prompt = (
+        "請把以下私人對話整理成不超過300字的繁體中文長期記憶摘要。保留人物、事件、偏好、"
+        "承諾、關係變化及未完成話題；不要加入原文沒有的資料，不要作道德評論。\n"
+        f"舊摘要：{conversation.summary or '未有'}\n新增對話：\n{transcript}"
+    )
+    with httpx.Client(timeout=120) as client:
+        response = client.post(
+            f"{settings.OLLAMA_BASE_URL}/api/chat",
+            json={
+                "model": settings.CHAT_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {
+                    "temperature": 0.2, "num_predict": 320,
+                    "repeat_penalty": 1.18, "repeat_last_n": 256,
+                },
+            },
+        )
+        response.raise_for_status()
+        conversation.summary = response.json()["message"]["content"].strip()
+        conversation.summarized_message_count += len(batch)
+        conversation.save(update_fields=("summary", "summarized_message_count"))
+
+
+def _recalled_messages(conversation, vector, recent_ids):
+    if not vector:
+        return []
+    queryset = Message.objects.filter(
+        conversation__character=conversation.character,
+        conversation__character__owner=conversation.character.owner,
+    ).exclude(id__in=recent_ids).exclude(embedding__isnull=True).annotate(
+        distance=CosineDistance("embedding", vector)
+    ).filter(distance__lte=settings.MESSAGE_MAX_COSINE_DISTANCE).order_by("distance")
+    return list(queryset[:settings.MESSAGE_RETRIEVAL_TOP_K])
+
+
+def _clean_repetition(text):
+    cleaned = re.sub(r"…{3,}", "……", text)
+    repeated = re.compile(r"(?P<unit>.{2,40}?)(?:\s*(?P=unit)){3,}", re.DOTALL)
+    for _ in range(3):
+        collapsed = repeated.sub(lambda match: match.group("unit").rstrip() + "……", cleaned)
+        if collapsed == cleaned:
+            break
+        cleaned = collapsed
+    return cleaned.strip()
+
 @api_view(["POST"])
 def send_message(request, conversation_id):
     conversation = get_object_or_404(Conversation.objects.select_related("character__owner__profile"), id=conversation_id, character__owner=request.user)
@@ -259,23 +326,44 @@ def send_message(request, conversation_id):
     if not content or len(content) > 8000:
         return Response({"error": {"code": "INVALID_MESSAGE", "message": "訊息不可為空白或超過 8,000 字。"}}, status=400)
     decision = classify(content)
-    Message.objects.create(conversation=conversation, role="user", content=content)
+    user_message = Message.objects.create(conversation=conversation, role="user", content=content)
     if decision.action != "allow":
         msg = Message.objects.create(conversation=conversation, role="assistant", content=decision.message, metadata={"guardrail": decision.action})
         return Response({"message": {"id": msg.id, "role": msg.role, "content": msg.content, "metadata": msg.metadata}, "guardrail": decision.action})
+    query_vector = None
+    try:
+        query_vector = _embedding(content)
+        user_message.embedding = query_vector
+        user_message.embedding_model = settings.EMBEDDING_MODEL
+        user_message.save(update_fields=("embedding", "embedding_model"))
+    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        pass
+    try:
+        _refresh_conversation_summary(conversation)
+    except (httpx.HTTPError, KeyError, ValueError):
+        pass
     recent = list(conversation.messages.all().order_by("-created_at")[:20])
     history = [{"role": m.role, "content": m.content} for m in reversed(recent)]
-    memory_candidates = _memory_candidates(conversation.character, content)
+    recent_ids = [message.id for message in recent]
+    recalled_messages = _recalled_messages(conversation, query_vector, recent_ids)
+    memory_candidates = _memory_candidates(conversation.character, content, query_vector)
     try:
         with httpx.Client(timeout=120) as client:
-            response = client.post(f"{settings.OLLAMA_BASE_URL}/api/chat", json={"model": settings.CHAT_MODEL, "messages": _prompt(conversation.character, history, memory_candidates), "stream": False, "options": {"temperature": 0.5, "num_predict": 512}})
+            response = client.post(f"{settings.OLLAMA_BASE_URL}/api/chat", json={"model": settings.CHAT_MODEL, "messages": _prompt(conversation.character, history, memory_candidates, conversation.summary, recalled_messages), "stream": False, "options": {"temperature": 0.65, "top_p": 0.9, "top_k": 40, "repeat_penalty": 1.18, "repeat_last_n": 256, "num_predict": 320}})
             response.raise_for_status()
             answer = response.json()["message"]["content"]
     except (httpx.HTTPError, KeyError, ValueError):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
+    answer = _clean_repetition(answer)
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
     attachments = []
     if memory_asset:
         attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
     msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata={"attachments": attachments} if attachments else {})
+    try:
+        msg.embedding = _embedding(answer)
+        msg.embedding_model = settings.EMBEDDING_MODEL
+        msg.save(update_fields=("embedding", "embedding_model"))
+    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        pass
     return Response({"message": {"id": msg.id, "role": msg.role, "content": msg.content, "metadata": msg.metadata, "attachments": attachments}})

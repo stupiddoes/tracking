@@ -344,7 +344,7 @@ Client 不應在收到 `message.completed` 前把半完成內容寫成正式訊�
 2. 檢查使用時限、停止詞及請求大小
 3. 輸入分類：現實／虛構語境、PII、危機、未成年人安全、絕對限制
 4. Policy engine 決定 allow / allow_with_context / safe_redirect / crisis / block
-5. 取得角色設定、界線、近期對話及已確認長期記憶
+5. 取得角色設定、界線、最近 20 條對話、較舊對話滾動摘要，以及由 pgvector 召回的同角色舊訊息
 6. 回憶模式執行 RAG；幻想模式只在需要時檢索角色記憶
 7. 組裝不可被用戶覆蓋的 system policy 及角色 prompt
 8. 呼叫 Gemma 3 並暫存在 server buffer

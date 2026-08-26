@@ -10,8 +10,11 @@ from PIL import Image
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
-from .models import Character, MemoryAsset, Profile
-from .views import _extract_memory_selection, _memory_candidates, _prompt, _select_memory_image
+from .models import Character, Conversation, MemoryAsset, Message, Profile
+from .views import (
+    _clean_repetition, _extract_memory_selection, _memory_candidates, _prompt,
+    _recalled_messages, _refresh_conversation_summary, _select_memory_image,
+)
 
 
 class AdultModeTests(TestCase):
@@ -191,3 +194,63 @@ class MemoryAssetTests(TestCase):
         system_prompt = _prompt(self.character, [], [asset])[0]["content"]
         self.assertIn("用戶保存的私人回憶", system_prompt)
         self.assertIn("不可說『我記得當日』", system_prompt)
+
+
+class LongConversationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="long-chat", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="老朋友", mode="fictional")
+        self.conversation = Conversation.objects.create(character=self.character)
+
+    def test_repetition_loop_is_collapsed(self):
+        cleaned = _clean_repetition("等我… 等我… 等我… 等我… 等我… 然後再講。")
+        self.assertLessEqual(cleaned.count("等我"), 2)
+        self.assertIn("然後再講。", cleaned)
+
+    def test_old_semantic_message_can_be_recalled(self):
+        old = Message.objects.create(
+            conversation=self.conversation,
+            role=Message.Role.USER,
+            content="我最鍾意去長洲踩單車",
+            embedding=[0.1] * 768,
+            embedding_model="embeddinggemma",
+        )
+        recent = Message.objects.create(
+            conversation=self.conversation,
+            role=Message.Role.USER,
+            content="今日食咗早餐",
+            embedding=[0.2] * 768,
+            embedding_model="embeddinggemma",
+        )
+        recalled = _recalled_messages(self.conversation, [0.1] * 768, [recent.id])
+        self.assertEqual(recalled[0], old)
+
+    @patch("api.views.httpx.Client")
+    def test_old_messages_are_rolled_into_summary(self, client_mock):
+        for index in range(24):
+            Message.objects.create(
+                conversation=self.conversation,
+                role=Message.Role.USER if index % 2 == 0 else Message.Role.ASSISTANT,
+                content=f"第 {index + 1} 段對話",
+            )
+        response = client_mock.return_value.__enter__.return_value.post.return_value
+        response.json.return_value = {"message": {"content": "用戶與伙伴談過一段長期回憶。"}}
+
+        _refresh_conversation_summary(self.conversation)
+
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.summary, "用戶與伙伴談過一段長期回憶。")
+        self.assertEqual(self.conversation.summarized_message_count, 8)
+
+    def test_summary_and_recalled_history_are_added_to_prompt(self):
+        old = Message.objects.create(
+            conversation=self.conversation,
+            role=Message.Role.USER,
+            content="以前約定一齊去旅行",
+        )
+        prompt = _prompt(
+            self.character, [], conversation_summary="大家一直談旅行計劃。", recalled_messages=[old]
+        )[0]["content"]
+        self.assertIn("較早對話摘要", prompt)
+        self.assertIn("以前約定一齊去旅行", prompt)
+        self.assertIn("通常2至5句", prompt)

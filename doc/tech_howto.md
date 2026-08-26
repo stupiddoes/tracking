@@ -161,6 +161,23 @@ Backend 檢查結果必須剛好有 768 維，然後把 vector 及 model 名稱�
 
 如果 embedding service 暫時失敗，系統不會附圖，但文字對話仍可繼續；它不會隨便 fallback 到最新圖片，以免發出不相關或不應展示的回憶。
 
+### 4.4 長對話記憶
+
+完整訊息會一直保存在 PostgreSQL，不會因單次生成長度而刪除。每次回答使用三層 context：
+
+1. 最近 20 條訊息直接放入 prompt，保留即時語氣及上下文。
+2. 較舊訊息分批整理成 conversation 滾動摘要，保留人物、事件、偏好、承諾及未完成話題。
+3. 每條新訊息以 `embeddinggemma` 建立 768 維向量；新問題可用 pgvector 從同一伙伴的舊 conversations 召回最多 4 條相關片段。
+
+`num_predict` 只控制單次回答，並不限制整段 conversation。現有回答預設最多 320 output tokens，另使用 `repeat_penalty=1.18` 及 server-side repetition cleanup，避免小模型卡在同一句；下一輪仍可繼續無限延續對話。
+
+```text
+完整 PostgreSQL 訊息
+   ├── 最近 20 條 ─────────────┐
+   ├── 較舊內容滾動摘要 ───────┼──> Gemma 3 回答
+   └── pgvector 相關舊片段 ─────┘
+```
+
 ## 5. 本機操作
 
 ### 5.1 啟動及檢查服務

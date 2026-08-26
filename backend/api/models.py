@@ -32,6 +32,8 @@ class Character(models.Model):
 class Conversation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="conversations")
+    summary = models.TextField(blank=True)
+    summarized_message_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
 class Message(models.Model):
@@ -44,6 +46,8 @@ class Message(models.Model):
     role = models.CharField(max_length=16, choices=Role.choices)
     content = models.TextField()
     metadata = models.JSONField(default=dict, blank=True)
+    embedding = VectorField(dimensions=768, null=True, blank=True)
+    embedding_model = models.CharField(max_length=80, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
