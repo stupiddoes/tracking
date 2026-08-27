@@ -109,6 +109,22 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-08-27 — 修正成人模式二次拒絕 fallback
+
+**Commit title：** `Keep adult fallback in character`
+
+改動：
+
+- 修正 Gemma 3 在成人模式重試後仍輸出 meta-refusal 時，backend 錯誤套用一般界線句的問題。
+- 已確認 18+、幻想伙伴成人開關已開啟，而且輸入已通過硬性 guardrail 時，最終 fallback 會改為自然、投入角色的成人承接，不再顯示「呢個方向我唔會繼續」。
+- 非成人模式仍使用一般界線；未成年人、脅迫、剝削及亂倫仍在模型 request 前由 guardrail 截停，不會進入此 fallback。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
+
 ### 2026-08-27 — 自動重試成人模式嘅跳出角色拒絕
 
 **Commit title：** `Retry out-of-character adult mode refusals`

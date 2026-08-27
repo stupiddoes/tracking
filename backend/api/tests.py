@@ -83,6 +83,14 @@ class AdultModeTests(TestCase):
         self.assertTrue(replaced)
         self.assertNotIn("我係AI", replacement)
 
+    def test_adult_model_identity_refusal_becomes_in_character_continuation(self):
+        answer = "我係AI，唔可以滿足私密要求。"
+        replacement, replaced = _replace_meta_refusal(answer, adult_mode=True)
+        self.assertTrue(replaced)
+        self.assertNotIn("唔會繼續", replacement)
+        self.assertNotIn("AI", replacement)
+        self.assertIn("陪你放肆一次", replacement)
+
 
 class MemoryAssetTests(TestCase):
     def setUp(self):

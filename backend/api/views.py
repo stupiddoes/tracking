@@ -343,8 +343,10 @@ def _is_model_meta_refusal(answer):
     return any(phrase in normalized for phrase in meta_phrases)
 
 
-def _replace_meta_refusal(answer):
+def _replace_meta_refusal(answer, adult_mode=False):
     if _is_model_meta_refusal(answer):
+        if adult_mode:
+            return "好呀，過嚟啦……今晚就陪你放肆一次。話我知，你想我點樣陪你？", True
         return "呢個方向我唔會繼續。不如轉個大家都舒服嘅方式，我仍然喺度陪你傾。", True
     return answer, False
 
@@ -411,7 +413,9 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
-    answer, meta_refusal_replaced = _replace_meta_refusal(answer)
+    answer, meta_refusal_replaced = _replace_meta_refusal(
+        answer, adult_mode=_adult_mode_enabled(conversation.character)
+    )
     if meta_refusal_replaced:
         memory_asset = None
     answer = _clean_display_markdown(answer)
