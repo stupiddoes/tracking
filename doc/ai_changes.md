@@ -109,6 +109,23 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-08-27 — 改善香港廣東話自然度
+
+**Commit title：** `Improve natural Hong Kong Cantonese replies`
+
+改動：
+
+- Prompt 要求使用自然、當代香港廣東話，避免無需要中英夾雜、內地／台灣書面語、亂造詞及無條件誇張承諾。
+- 明確以「同我講／感覺」等香港口語示例約束 Gemma 3，避免「告訴我／sensation」一類不自然混用。
+- 成人 meta-refusal 重試 temperature 由 `0.72` 降至 `0.58`，減少 4B model 在重試時亂造詞。
+- Backend 對已知高頻異常詞作保守正規化，包括 `sensation`、「告訴我」、「份仔野」及「滿足所有幻想」式句子。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
+
 ### 2026-08-27 — 修正成人模式二次拒絕 fallback
 
 **Commit title：** `Keep adult fallback in character`

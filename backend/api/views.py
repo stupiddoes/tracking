@@ -239,6 +239,9 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         long_term_policy += f"語意檢索到的較早對話片段：\n{excerpts}\n"
     response_style = (
         "所有回答只可使用香港繁體中文，禁止輸出簡體中文字；即使用戶輸入簡體字亦要以繁體字回答。"
+        "使用自然、當代香港廣東話口語，避免台灣或內地書面語；除非係香港人日常慣用講法，否則不要中英夾雜。"
+        "禁止亂造詞、錯別字、語意不通句子，亦不要聲稱可以滿足用戶所有幻想或作無條件保證。"
+        "例如應講『同我講』而唔係『告訴我』，講『感覺』而唔係無故使用英文 sensation。"
         "每次回答保持自然精簡，通常2至5句；除非用戶明確要求詳細解釋，否則不要寫長篇獨白。"
         "禁止連續重複同一詞語、句子、動作描寫或省略號。"
         "如需要拒絕或設定界線，保持角色語氣並用一兩句簡短回應；不可聲稱對話已被終止，"
@@ -362,6 +365,21 @@ def _clean_display_markdown(text):
     return cleaned.strip()
 
 
+def _polish_hk_cantonese(text):
+    replacements = (
+        (r"(?i)\bsensation(?:s)?\b", "感覺"),
+        (r"告訴我", "同我講"),
+        (r"過份", "過分"),
+        (r"做到份仔野", "做啲乜嘢"),
+        (r"份仔野", "啲乜嘢"),
+        (r"滿足到你嘅所有幻想", "陪你慢慢探索你想要嘅感覺"),
+    )
+    polished = text
+    for pattern, replacement in replacements:
+        polished = re.sub(pattern, replacement, polished)
+    return polished.strip()
+
+
 @api_view(["POST"])
 def send_message(request, conversation_id):
     conversation = get_object_or_404(Conversation.objects.select_related("character__owner__profile"), id=conversation_id, character__owner=request.user)
@@ -405,7 +423,7 @@ def send_message(request, conversation_id):
                 )
                 response = client.post(
                     f"{settings.OLLAMA_BASE_URL}/api/chat",
-                    json={**request_body, "messages": retry_messages, "options": {**request_body["options"], "temperature": 0.72}},
+                    json={**request_body, "messages": retry_messages, "options": {**request_body["options"], "temperature": 0.58}},
                 )
                 response.raise_for_status()
                 answer = response.json()["message"]["content"]
@@ -419,6 +437,7 @@ def send_message(request, conversation_id):
     if meta_refusal_replaced:
         memory_asset = None
     answer = _clean_display_markdown(answer)
+    answer = _polish_hk_cantonese(answer)
     attachments = []
     if memory_asset:
         attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})

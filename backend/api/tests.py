@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_display_markdown, _clean_repetition, _extract_memory_selection, _memory_candidates,
-    _adult_mode_enabled, _is_model_meta_refusal, _prompt, _replace_meta_refusal,
+    _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
 )
@@ -90,6 +90,17 @@ class AdultModeTests(TestCase):
         self.assertNotIn("唔會繼續", replacement)
         self.assertNotIn("AI", replacement)
         self.assertIn("陪你放肆一次", replacement)
+
+    def test_awkward_mixed_language_is_polished_to_hk_cantonese(self):
+        answer = _polish_hk_cantonese(
+            "唔知你想要咩 sensation？告訴我你想我做到份仔野，我一定滿足到你嘅所有幻想！"
+        )
+        self.assertNotIn("sensation", answer)
+        self.assertNotIn("告訴我", answer)
+        self.assertNotIn("份仔野", answer)
+        self.assertNotIn("所有幻想", answer)
+        self.assertIn("感覺", answer)
+        self.assertIn("同我講", answer)
 
 
 class MemoryAssetTests(TestCase):
