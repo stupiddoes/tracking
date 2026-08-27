@@ -60,8 +60,11 @@ jobs:
                sed -i "s/^CHAT_MODEL=gemma3:1b$/CHAT_MODEL=gemma3:4b/" "$DEPLOY_PATH/.env"
              fi
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d ollama
-             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull gemma3:4b
-             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull embeddinggemma
-             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama run gemma3:4b "Reply only with OK"
+             if ! docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama show gemma3:4b >/dev/null 2>&1; then
+               docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull gemma3:4b
+             fi
+             if ! docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama show embeddinggemma >/dev/null 2>&1; then
+               docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull embeddinggemma
+             fi
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --build
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'
