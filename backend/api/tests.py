@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_display_markdown, _clean_repetition, _extract_memory_selection, _memory_candidates,
-    _prompt, _replace_meta_refusal,
+    _adult_mode_enabled, _is_model_meta_refusal, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
 )
@@ -73,6 +73,15 @@ class AdultModeTests(TestCase):
         self.assertIn("露骨性內容均屬允許範圍", enabled_prompt)
         self.assertIn("不可只因內容涉及性而拒絕", enabled_prompt)
         self.assertIn("沒有脅迫、剝削、亂倫或未成年人", enabled_prompt)
+        self.assertIn("不要說『我係AI』", enabled_prompt)
+        self.assertTrue(_adult_mode_enabled(character))
+
+    def test_model_identity_refusal_is_detected(self):
+        answer = "我係AI，冇年齡㗎。我嘅存在目的都唔係為咗滿足嚇啲私密嘅要求。"
+        self.assertTrue(_is_model_meta_refusal(answer))
+        replacement, replaced = _replace_meta_refusal(answer)
+        self.assertTrue(replaced)
+        self.assertNotIn("我係AI", replacement)
 
 
 class MemoryAssetTests(TestCase):

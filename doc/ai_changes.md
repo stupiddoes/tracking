@@ -109,6 +109,23 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-08-27 — 自動重試成人模式嘅跳出角色拒絕
+
+**Commit title：** `Retry out-of-character adult mode refusals`
+
+改動：
+
+- 成人 prompt 明確禁止 Gemma 3 用「我係 AI」、「冇年齡」、「存在目的」或「唔滿足私密要求」等 meta-refusal 跳出角色。
+- Backend 偵測呢類模型身份拒絕；只限帳戶已確認 18+、幻想伙伴已開啟成人模式，而且輸入已通過硬性 guardrail 時，自動用更明確指示重試一次。
+- 重試仍然保留未成年人、脅迫、剝削及亂倫限制；一般模式或被 guardrail 攔截的輸入不會觸發成人重試。
+- 若第二次仍輸出 meta-refusal，既有輸出清理會阻止機械式 AI 政策字句直接顯示。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
+
 ### 2026-08-26 — 停用朗讀並強化已確認 18+ 模式
 
 **Commit title：** `Disable speech and reinforce consented adult mode`
