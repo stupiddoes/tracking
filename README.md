@@ -42,7 +42,9 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 
 Push 到 `main` 後，GitHub Actions 會 SSH 到 production server，在
 `/home/virality/tracking` 執行 fast-forward-only pull，再執行
-`docker compose up -d --build`。亦可在 Actions 頁面手動觸發。
+獨立、可重試的低並行度 image build；全部 build 成功後才以
+`docker compose up -d --no-build` 切換 containers，避免 BuildKit 暫時性失敗令現有服務停機。
+亦可在 Actions 頁面手動觸發。
 
 Repository 需要設定以下 Actions secrets：
 

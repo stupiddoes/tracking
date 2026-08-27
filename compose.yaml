@@ -42,7 +42,7 @@ services:
     networks: [ai_private, ollama_egress]
 
   migrate:
-    build: ./backend
+    image: stillhere-backend:latest
     command: python manage.py migrate --noinput
     env_file: [.env]
     environment:
@@ -61,6 +61,7 @@ services:
     networks: [private]
 
   backend:
+    image: stillhere-backend:latest
     build: ./backend
     command: uvicorn config.asgi:application --host 0.0.0.0 --port 8765
     env_file: [.env]
@@ -90,7 +91,7 @@ services:
     networks: [private, ai_private]
 
   worker:
-    build: ./backend
+    image: stillhere-backend:latest
     command: celery -A config worker --loglevel=INFO
     env_file: [.env]
     environment:

@@ -66,5 +66,15 @@ jobs:
              if ! docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama show embeddinggemma >/dev/null 2>&1; then
                docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T ollama ollama pull embeddinggemma
              fi
-             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --build
+             BUILD_OK=0
+             for ATTEMPT in 1 2 3; do
+               if COMPOSE_PARALLEL_LIMIT=1 docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" build backend frontend; then
+                 BUILD_OK=1
+                 break
+               fi
+               printf "Docker build attempt %s failed; retrying.\n" "$ATTEMPT"
+               sleep 10
+             done
+             test "$BUILD_OK" -eq 1
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --no-build
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'
