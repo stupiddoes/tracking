@@ -109,6 +109,24 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-09-04 — 防止模型虛構已展示相片
+
+**Commit title：** `Ground photo retrieval and prevent fake displays`
+
+改動：
+
+- 查明「你唔係有張 bear 相咩」同實際 bear 相的 cosine distance 為 `0.5105`，高於一般圖片門檻 `0.45`，導致零候選但 Gemma 3 虛構黑白自拍。
+- 用戶明確提出相片／圖片／photo request 時，圖片 retrieval distance 暫時放寬至 `0.60`；一般對話仍使用設定值 `0.45`，owner、伙伴、18+ 及展示規則硬過濾不變。
+- 零候選時 prompt 明確禁止聲稱搵到、展示、傳送或看見相片，以及虛構顏色、內容或自拍。
+- Backend 在沒有合法 `[SHOW_MEMORY:<uuid>]` 選圖時攔截假展示句；有合法相片時亦禁止角色把用戶保存的圖片聲稱為自己自拍或親身記憶。
+- 附圖回答若欠缺來源說明，backend 會補上「你保存嘅回憶相片」標示。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
+
 ### 2026-09-04 — 相簿 metadata 編輯後重建索引
 
 **Commit title：** `Add private memory album management`

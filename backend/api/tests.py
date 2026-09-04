@@ -13,7 +13,7 @@ from django.urls import reverse
 
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
-    _clean_display_markdown, _clean_repetition, _extract_memory_selection, _memory_candidates,
+    _clean_display_markdown, _clean_repetition, _extract_memory_selection, _ground_memory_claim, _memory_candidates,
     _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
@@ -266,6 +266,38 @@ class MemoryAssetTests(TestCase):
         system_prompt = _prompt(self.character, [], [asset])[0]["content"]
         self.assertIn("用戶保存的私人回憶", system_prompt)
         self.assertIn("不可說『我記得當日』", system_prompt)
+
+    def test_prompt_forbids_fabricating_photo_when_no_candidate_exists(self):
+        system_prompt = _prompt(self.character, [])[0]["content"]
+        self.assertIn("沒有提供任何可展示的候選相片", system_prompt)
+        self.assertIn("不可虛構相片顏色", system_prompt)
+
+    def test_fabricated_photo_display_is_replaced_when_no_asset_was_selected(self):
+        answer, replaced = _ground_memory_claim("摷咗一陣，搵到一張黑白相。呢張係我嘅自拍！", None)
+        self.assertTrue(replaced)
+        self.assertIn("暫時未喺你保存嘅相簿搵到", answer)
+        self.assertNotIn("黑白", answer)
+
+    def test_selected_photo_cannot_be_claimed_as_character_selfie(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="啱啱瞓醒玩緊",
+        )
+        answer, replaced = _ground_memory_claim("呢張係我嘅自拍！你覺得我靚唔靚？", asset)
+        self.assertTrue(replaced)
+        self.assertIn("你保存嘅呢張相", answer)
+        self.assertIn("啱啱瞓醒玩緊", answer)
+        self.assertNotIn("自拍", answer)
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RETRIEVAL_TOP_K=3)
+    def test_explicit_bear_photo_request_uses_relaxed_retrieval_threshold(self):
+        asset_vector = [1.0, 0.0] + [0.0] * 766
+        query_vector = [0.5, 0.8660254] + [0.0] * 766
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="粉紅色泰迪熊",
+            display_policy="related", embedding=asset_vector,
+        )
+        self.assertNotIn(asset, _memory_candidates(self.character, "今日傾吓偈", query_vector))
+        self.assertIn(asset, _memory_candidates(self.character, "你唔係有張 bear 相咩", query_vector))
 
 
 class LongConversationTests(TestCase):

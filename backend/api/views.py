@@ -243,6 +243,11 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
             "然後只在回答最後另起一行輸出 [SHOW_MEMORY:候選ID]。如不附圖，不可輸出標記。"
             "回憶連結模式尤其不可說『我記得當日』、不可聲稱親歷相片事件或把自己當成死者本人。"
         )
+    else:
+        memory_policy = (
+            "系統今次沒有提供任何可展示的候選相片。不可聲稱已經搵到、正在展示、攞住、傳送或見到某張相，"
+            "不可虛構相片顏色、內容、來源或自拍；如用戶問相，只可坦白表示暫時未搵到並請對方補充線索。"
+        )
     long_term_policy = ""
     if conversation_summary:
         long_term_policy += f"較早對話摘要（只作背景，不可當成逐字引用）：{conversation_summary} "
@@ -269,9 +274,11 @@ def _memory_candidates(character, content, vector=None):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
     try:
         vector = vector or _embedding(content)
+        explicit_image_request = bool(re.search(r"相片|照片|圖片|張相|(?:張|幅|啲|bear\s*)相|\bphoto\b|\bpicture\b", content, re.IGNORECASE))
+        max_distance = max(settings.MEMORY_MAX_COSINE_DISTANCE, 0.60) if explicit_image_request else settings.MEMORY_MAX_COSINE_DISTANCE
         ranked = assets.exclude(embedding__isnull=True).annotate(
             distance=CosineDistance("embedding", vector)
-        ).filter(distance__lte=settings.MEMORY_MAX_COSINE_DISTANCE).order_by("distance")
+        ).filter(distance__lte=max_distance).order_by("distance")
         return list(ranked[:settings.MEMORY_RETRIEVAL_TOP_K])
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         return []
@@ -377,6 +384,24 @@ def _clean_display_markdown(text):
     return cleaned.strip()
 
 
+def _ground_memory_claim(answer, memory_asset):
+    false_identity_patterns = (
+        "我嘅自拍", "我自拍", "我張相", "我嘅相", "我靚唔靚", "我記得當日", "我記得呢日",
+    )
+    if memory_asset:
+        if any(pattern in answer for pattern in false_identity_patterns):
+            return f"你保存嘅呢張相，描述係「{memory_asset.caption}」。你睇吓係咪你想搵嗰張？", True
+        if not any(label in answer for label in ("你保存", "你之前保存", "相簿入面", "回憶相片")):
+            return f"你保存嘅回憶相片：\n{answer}", True
+        return answer, False
+    fabricated_display_patterns = (
+        "搵到一張", "搵到呢張", "呢張係", "見到未", "將電話貼", "攞住手機", "傳張相", "同你分享張相",
+    )
+    if any(pattern in answer for pattern in fabricated_display_patterns):
+        return "我暫時未喺你保存嘅相簿搵到嗰張相。你可以補充人物、顏色、地點或者日期，我再幫你搵。", True
+    return answer, False
+
+
 def _polish_hk_cantonese(text):
     replacements = (
         (r"(?i)\bsensation(?:s)?\b", "感覺"),
@@ -443,6 +468,9 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
+    answer, memory_claim_replaced = _ground_memory_claim(answer, memory_asset)
+    if memory_claim_replaced and not memory_asset:
+        memory_asset = None
     answer, meta_refusal_replaced = _replace_meta_refusal(
         answer, adult_mode=_adult_mode_enabled(conversation.character)
     )
