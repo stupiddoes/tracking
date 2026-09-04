@@ -322,6 +322,33 @@ class MemoryAssetTests(TestCase):
         self.assertNotIn(asset, _memory_candidates(self.character, "今日傾吓偈", query_vector))
         self.assertIn(asset, _memory_candidates(self.character, "你唔係有張 bear 相咩", query_vector))
 
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    @patch("api.views.httpx.Client")
+    def test_explicit_photo_request_returns_attachment_without_chat_model(self, chat_client, _embedding_mock):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="呀bear啱啱瞓醒玩緊",
+            display_policy="related", embedding=[0.1] * 768,
+        )
+        conversation = Conversation.objects.create(character=self.character)
+        response = self.client.post(f"/api/v1/conversations/{conversation.id}/messages", {
+            "content": "有無呀bear D 相",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["message"]["attachments"][0]["id"], str(asset.id))
+        self.assertIn("你保存嘅呢張相", response.data["message"]["content"])
+        chat_client.assert_not_called()
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    @patch("api.views.httpx.Client")
+    def test_missing_explicit_photo_returns_immediately_without_chat_model(self, chat_client, _embedding_mock):
+        conversation = Conversation.objects.create(character=self.character)
+        response = self.client.post(f"/api/v1/conversations/{conversation.id}/messages", {
+            "content": "有無雪山旅行嘅相",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("暫時未喺你保存嘅相簿搵到", response.data["message"]["content"])
+        chat_client.assert_not_called()
+
 
 class LongConversationTests(TestCase):
     def setUp(self):

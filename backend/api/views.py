@@ -441,6 +441,25 @@ def send_message(request, conversation_id):
         user_message.save(update_fields=("embedding", "embedding_model"))
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         pass
+    explicit_image_request = _is_explicit_image_request(content)
+    memory_candidates = _memory_candidates(conversation.character, content, query_vector)
+    if explicit_image_request:
+        memory_asset = memory_candidates[0] if memory_candidates else None
+        answer, _ = _ground_memory_claim("", memory_asset)
+        if not memory_asset:
+            answer = "我暫時未喺你保存嘅相簿搵到嗰張相。你可以補充人物、顏色、地點或者日期，我再幫你搵。"
+        attachments = []
+        if memory_asset:
+            attachments.append({"id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
+        metadata = {"attachments": attachments} if attachments else {}
+        msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=metadata)
+        try:
+            msg.embedding = _embedding(answer)
+            msg.embedding_model = settings.EMBEDDING_MODEL
+            msg.save(update_fields=("embedding", "embedding_model"))
+        except (httpx.HTTPError, KeyError, IndexError, ValueError):
+            pass
+        return Response({"message": {"id": msg.id, "role": msg.role, "content": msg.content, "metadata": msg.metadata, "attachments": attachments}})
     try:
         _refresh_conversation_summary(conversation)
     except (httpx.HTTPError, KeyError, ValueError):
@@ -449,8 +468,6 @@ def send_message(request, conversation_id):
     history = [{"role": m.role, "content": m.content} for m in reversed(recent)]
     recent_ids = [message.id for message in recent]
     recalled_messages = _recalled_messages(conversation, query_vector, recent_ids)
-    memory_candidates = _memory_candidates(conversation.character, content, query_vector)
-    explicit_image_request = _is_explicit_image_request(content)
     try:
         with httpx.Client(timeout=120) as client:
             messages = _prompt(conversation.character, history, memory_candidates, conversation.summary, recalled_messages)
@@ -474,8 +491,6 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
-    if explicit_image_request and not memory_asset and memory_candidates:
-        memory_asset = memory_candidates[0]
     answer, memory_claim_replaced = _ground_memory_claim(answer, memory_asset)
     if memory_claim_replaced and not memory_asset:
         memory_asset = None
@@ -488,7 +503,7 @@ def send_message(request, conversation_id):
     answer = _polish_hk_cantonese(answer)
     attachments = []
     if memory_asset:
-        attachments.append({"id": memory_asset.id, "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
+        attachments.append({"id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
     message_metadata = {}
     if attachments:
         message_metadata["attachments"] = attachments

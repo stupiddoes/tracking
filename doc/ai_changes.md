@@ -121,6 +121,8 @@ num_predict=320
 - Backend 在沒有合法 `[SHOW_MEMORY:<uuid>]` 選圖時攔截假展示句；有合法相片時亦禁止角色把用戶保存的圖片聲稱為自己自拍或親身記憶。
 - 附圖回答若欠缺來源說明，backend 會補上「你保存嘅回憶相片」標示。
 - 2026-09-04 補充：支援「有無…D 相／有冇…嘅相」等香港口語 request；明確問相而已有合格候選時，backend 直接附上排名第一的 asset，不再依賴 Gemma 3 自願輸出 marker。附圖過場由真實 caption 確定生成，避免模型扮「攞出相」但 metadata 沒有 attachment。
+- 2026-09-04 補充：明確問相改用 deterministic fast path；完成 embedding／pgvector 檢索後立即回傳 attachment 或「未搵到」提示，完全跳過 Gemma chat request、摘要更新及舊訊息召回。即使 4B model 冷啟動、繁忙或 timeout，相片要求亦不再回傳 `MODEL_UNAVAILABLE`。
+- Attachment metadata 的 UUID 統一序列化為字串，避免真正選中圖片時 PostgreSQL JSONField 因 `UUID is not JSON serializable` 而失敗。
 
 涉及檔案：
 
