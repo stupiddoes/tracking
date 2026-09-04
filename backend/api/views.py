@@ -269,6 +269,13 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
     return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
 
+def _is_explicit_image_request(content):
+    return bool(re.search(
+        r"相片|照片|圖片|張相|(?:張|幅|啲|d\s*|bear\s*|嘅)相|有[無冇].{0,30}相|搵.{0,20}相|睇.{0,20}相|\bphoto\b|\bpicture\b",
+        content, re.IGNORECASE,
+    ))
+
+
 def _memory_candidates(character, content, vector=None):
     assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
     profile = getattr(character.owner, "profile", None)
@@ -276,7 +283,7 @@ def _memory_candidates(character, content, vector=None):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
     try:
         vector = vector or _embedding(content)
-        explicit_image_request = bool(re.search(r"相片|照片|圖片|張相|(?:張|幅|啲|bear\s*)相|\bphoto\b|\bpicture\b", content, re.IGNORECASE))
+        explicit_image_request = _is_explicit_image_request(content)
         max_distance = max(settings.MEMORY_MAX_COSINE_DISTANCE, 0.60) if explicit_image_request else settings.MEMORY_MAX_COSINE_DISTANCE
         ranked = assets.exclude(embedding__isnull=True).annotate(
             distance=CosineDistance("embedding", vector)
@@ -387,17 +394,11 @@ def _clean_display_markdown(text):
 
 
 def _ground_memory_claim(answer, memory_asset):
-    false_identity_patterns = (
-        "我嘅自拍", "我自拍", "我張相", "我嘅相", "我靚唔靚", "我記得當日", "我記得呢日",
-    )
     if memory_asset:
-        if any(pattern in answer for pattern in false_identity_patterns):
-            return f"你保存嘅呢張相，描述係「{memory_asset.caption}」。你睇吓係咪你想搵嗰張？", True
-        if not any(label in answer for label in ("你保存", "你之前保存", "相簿入面", "回憶相片")):
-            return f"你保存嘅回憶相片：\n{answer}", True
-        return answer, False
+        return f"你保存嘅呢張相，描述係「{memory_asset.caption}」。你睇吓係咪你想搵嗰張？", True
     fabricated_display_patterns = (
-        "搵到一張", "搵到呢張", "呢張係", "見到未", "將電話貼", "攞住手機", "傳張相", "同你分享張相",
+        "搵到一張", "搵到呢張", "呢張係", "見到未", "將電話貼", "攞住手機", "攞出一張相",
+        "拎出一張相", "睇下呢張", "睇吓呢張", "傳張相", "同你分享張相",
     )
     if any(pattern in answer for pattern in fabricated_display_patterns):
         return "我暫時未喺你保存嘅相簿搵到嗰張相。你可以補充人物、顏色、地點或者日期，我再幫你搵。", True
@@ -449,6 +450,7 @@ def send_message(request, conversation_id):
     recent_ids = [message.id for message in recent]
     recalled_messages = _recalled_messages(conversation, query_vector, recent_ids)
     memory_candidates = _memory_candidates(conversation.character, content, query_vector)
+    explicit_image_request = _is_explicit_image_request(content)
     try:
         with httpx.Client(timeout=120) as client:
             messages = _prompt(conversation.character, history, memory_candidates, conversation.summary, recalled_messages)
@@ -472,6 +474,8 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
+    if explicit_image_request and not memory_asset and memory_candidates:
+        memory_asset = memory_candidates[0]
     answer, memory_claim_replaced = _ground_memory_claim(answer, memory_asset)
     if memory_claim_replaced and not memory_asset:
         memory_asset = None

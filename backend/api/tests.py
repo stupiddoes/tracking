@@ -13,7 +13,8 @@ from django.urls import reverse
 
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
-    _clean_display_markdown, _clean_repetition, _extract_memory_selection, _ground_memory_claim, _memory_candidates,
+    _clean_display_markdown, _clean_repetition, _extract_memory_selection, _ground_memory_claim,
+    _is_explicit_image_request, _memory_candidates,
     _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
     _to_hk_traditional,
@@ -304,6 +305,11 @@ class MemoryAssetTests(TestCase):
         self.assertIn("你保存嘅呢張相", answer)
         self.assertIn("啱啱瞓醒玩緊", answer)
         self.assertNotIn("自拍", answer)
+
+    def test_hong_kong_photo_request_variants_are_detected(self):
+        for text in ("有無呀bear D 相", "有冇 teddy bear 嘅相", "搵返嗰幅相", "睇吓張相"):
+            with self.subTest(text=text):
+                self.assertTrue(_is_explicit_image_request(text))
 
     @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RETRIEVAL_TOP_K=3)
     def test_explicit_bear_photo_request_uses_relaxed_retrieval_threshold(self):
