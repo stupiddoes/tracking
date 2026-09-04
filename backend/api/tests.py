@@ -149,6 +149,27 @@ class MemoryAssetTests(TestCase):
         denied = self.client.get(f"/api/v1/memory-assets/{asset.id}/content/")
         self.assertEqual(denied.status_code, 404)
 
+    @patch("api.views._embedding", return_value=[0.2] * 768)
+    def test_owner_can_manage_album_metadata_and_delete_photo(self, embedding_mock):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="舊描述",
+            generated_caption="兩個人喺海邊", tags="海邊", display_policy="on_request",
+        )
+        response = self.client.patch(f"/api/v1/memory-assets/{asset.id}/", {
+            "caption": "長洲海邊嘅回憶", "tags": "長洲, 家人", "captured_at": "2024-06-01",
+            "display_policy": "related", "sensitivity": "ordinary",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        asset.refresh_from_db()
+        self.assertEqual(asset.caption, "長洲海邊嘅回憶")
+        self.assertEqual(asset.display_policy, "related")
+        self.assertEqual(asset.embedding, [0.2] * 768)
+        self.assertIn("圖片內容：兩個人喺海邊", embedding_mock.call_args.args[0])
+
+        response = self.client.delete(f"/api/v1/memory-assets/{asset.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(MemoryAsset.objects.filter(id=asset.id).exists())
+
     @patch("api.views._vision_caption", return_value="一張由 iPhone 拍攝的相片")
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_heic_upload_is_accepted(self, _embedding_mock, _vision_mock):

@@ -109,6 +109,27 @@ num_predict=320
 
 ## 5. 改動歷史
 
+### 2026-09-04 — 相簿 metadata 編輯後重建索引
+
+**Commit title：** `Add private memory album management`
+
+改動：
+
+- 新增私人相簿管理 UI，可查看 Vision 描述、編輯回憶描述／標籤／日期／展示規則及刪除相片。
+- 用戶修改 caption 或 tags 後，backend 以最新用戶資料、原有 Vision caption 及標籤重新建立 `embeddinggemma` 向量，避免圖片搜尋繼續使用舊描述。
+- 原有 owner／character／18+ 權限過濾及私人圖片 endpoint 保持不變；沒有 schema migration。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/serializers.py`
+- `backend/api/tests.py`
+- `frontend/src/App.tsx`
+- `frontend/src/memory.css`
+- `doc/ui_ux.md`
+- `doc/tech_spec.md`
+- `doc/ai_changes.md`
+
 ### 2026-08-27 — 改善香港廣東話自然度
 
 **Commit title：** `Improve natural Hong Kong Cantonese replies`

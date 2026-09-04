@@ -63,7 +63,7 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if attrs.get("sensitivity") == MemoryAsset.Sensitivity.ADULT:
-            character = attrs.get("character")
+            character = attrs.get("character", getattr(self.instance, "character", None))
             profile = getattr(self.context["request"].user, "profile", None)
             if not (profile and profile.adult_confirmed and character.adult_content_enabled):
                 raise serializers.ValidationError({"sensitivity": "成人圖片需要帳戶已確認 18+，而且伙伴已開啟成人內容。"})

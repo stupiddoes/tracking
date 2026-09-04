@@ -13,7 +13,7 @@ from opencc import OpenCC
 from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -107,8 +107,8 @@ def _vision_caption(image_field):
 
 class MemoryAssetViewSet(viewsets.ModelViewSet):
     serializer_class = MemoryAssetSerializer
-    parser_classes = (MultiPartParser, FormParser)
-    http_method_names = ("get", "post", "delete", "head", "options")
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
+    http_method_names = ("get", "post", "patch", "delete", "head", "options")
 
     def get_queryset(self):
         queryset = MemoryAsset.objects.filter(owner=self.request.user).select_related("character")
@@ -136,6 +136,18 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         storage, name = instance.image.storage, instance.image.name
         instance.delete()
         storage.delete(name)
+
+    def perform_update(self, serializer):
+        asset = serializer.save()
+        if {"caption", "tags"}.intersection(serializer.validated_data):
+            try:
+                asset.embedding = _embedding(
+                    f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
+                )
+                asset.embedding_model = settings.EMBEDDING_MODEL
+                asset.save(update_fields=("embedding", "embedding_model"))
+            except (httpx.HTTPError, KeyError, IndexError, ValueError):
+                pass
 
     @action(detail=True, methods=("get",), url_path="content")
     def content(self, request, pk=None):

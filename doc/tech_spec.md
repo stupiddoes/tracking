@@ -210,6 +210,12 @@ MVP 不要求輸入真實出生日期，只儲存年齡組別。`under_13` 預�
 展示規則及 768 維 embedding。圖片只可經 Token-authenticated content endpoint 讀取；
 檢索必須先按 owner、伙伴、展示規則及 18+ 狀態作硬過濾，才以 cosine distance 排序。
 
+相簿管理 UI 使用 `GET /api/v1/memory-assets/?character=<uuid>` 列出指定伙伴的相片，
+並以 authenticated `content_url` 載入原圖。用戶可經 `PATCH /api/v1/memory-assets/<uuid>/`
+修改 caption、tags、拍攝日期、敏感度及展示規則；caption 或 tags 改動時重新建立 embedding。
+刪除使用相同 detail endpoint 的 `DELETE`，同時刪除 database record 及 private storage 原檔。
+所有 detail 操作均由 owner-scoped queryset 防止跨帳戶存取。
+
 #### Vector database 決定
 
 MVP 的 vector database 採用 **PostgreSQL 17 + pgvector**，不另外部署 Pinecone、Qdrant、Chroma 或其他獨立向量服務。一般關聯資料、素材 metadata、chunks、embeddings 及 ownership constraints 均在同一個 PostgreSQL transaction boundary 內管理。
