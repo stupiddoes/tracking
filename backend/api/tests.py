@@ -9,6 +9,7 @@ from django.test.utils import override_settings
 from PIL import Image
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
+from django.urls import reverse
 
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
@@ -169,6 +170,24 @@ class MemoryAssetTests(TestCase):
         response = self.client.delete(f"/api/v1/memory-assets/{asset.id}/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(MemoryAsset.objects.filter(id=asset.id).exists())
+
+    def test_admin_can_preview_private_upload_but_regular_user_cannot(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="私人回憶",
+        )
+        preview_url = reverse("admin:api_memoryasset_preview", args=(asset.id,))
+        response = self.client.get(preview_url)
+        self.assertEqual(response.status_code, 302)
+
+        admin_user = get_user_model().objects.create_superuser(
+            username="photo-admin", password="testing-password", email="admin@example.com"
+        )
+        self.client.force_authenticate(user=None)
+        self.client.logout()
+        self.client.force_login(admin_user)
+        response = self.client.get(preview_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
 
     @patch("api.views._vision_caption", return_value="一張由 iPhone 拍攝的相片")
     @patch("api.views._embedding", return_value=[0.1] * 768)

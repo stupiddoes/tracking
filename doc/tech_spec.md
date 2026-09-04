@@ -216,6 +216,10 @@ MVP 不要求輸入真實出生日期，只儲存年齡組別。`under_13` 預�
 刪除使用相同 detail endpoint 的 `DELETE`，同時刪除 database record 及 private storage 原檔。
 所有 detail 操作均由 owner-scoped queryset 防止跨帳戶存取。
 
+Django Admin 的 `MemoryAsset` 管理頁提供 staff-only 縮圖／原圖預覽、owner／伙伴搜尋、
+敏感度／展示規則／日期篩選、metadata 編輯及批次展示規則操作。Admin 圖片使用獨立
+`admin_site.admin_view` endpoint，不公開 storage URL；單張或批次刪除均同步刪除 private 原檔。
+
 #### Vector database 決定
 
 MVP 的 vector database 採用 **PostgreSQL 17 + pgvector**，不另外部署 Pinecone、Qdrant、Chroma 或其他獨立向量服務。一般關聯資料、素材 metadata、chunks、embeddings 及 ownership constraints 均在同一個 PostgreSQL transaction boundary 內管理。

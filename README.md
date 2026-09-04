@@ -38,6 +38,9 @@ Project Ollama 不 publish `11434`，只可由 `ai_private` network 內的 backe
 
 技術文件：[`doc/tech_spec.md`](./doc/tech_spec.md) · [`doc/tech_howto.md`](./doc/tech_howto.md)（RAG／pgvector 實作教學）· [`doc/ai_changes.md`](./doc/ai_changes.md)（AI 改動及檔案紀錄）
 
+Django 管理員可在 `/admin/` 的「Memory assets」查看私人縮圖、搜尋／篩選上載、
+修改相片 metadata、批次設定對話展示方式及刪除原圖。圖片預覽只限已登入 staff。
+
 ## 自動部署
 
 Push 到 `main` 後，GitHub Actions 會 SSH 到 production server，在
