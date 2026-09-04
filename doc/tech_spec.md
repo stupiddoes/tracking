@@ -411,6 +411,8 @@ Client 不應在收到 `message.completed` 前把半完成內容寫成正式訊�
 - MVP 建議 top-k 候選 12、最終 context 4–6 段；實際數值經廣東話測試調整。
 - Embedding model 或 chunking version 改變時，需要可重建索引。
 
+圖片候選分為兩種展示路徑：用戶明確要求相片時，backend 直接回傳最高排名的合格候選；一般對話中，模型沒有選圖時，backend 可作 relevance fallback。Fallback 只可選擇 `display_policy=related`、`sensitivity=ordinary` 且 cosine distance 不高於 `MEMORY_SPONTANEOUS_MAX_DISTANCE`（預設 `0.35`）的圖片。最近 `MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES`（預設 8）個 assistant 回覆曾附圖便不得 fallback，以免頻密或重複打斷對話。`on_request`、`never` 及成人敏感圖片不可經此主動路徑展示。
+
 每次搜尋必須同時加入 authenticated owner 與目前角色條件：
 
 ```sql

@@ -405,6 +405,22 @@ def _ground_memory_claim(answer, memory_asset):
     return answer, False
 
 
+def _spontaneous_memory_candidate(memory_candidates, recent_messages):
+    recent_assistant_messages = [
+        message for message in recent_messages if message.role == Message.Role.ASSISTANT
+    ][:settings.MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES]
+    if any((message.metadata or {}).get("attachments") for message in recent_assistant_messages):
+        return None
+    for asset in memory_candidates:
+        if (
+            asset.display_policy == MemoryAsset.DisplayPolicy.RELATED
+            and asset.sensitivity == MemoryAsset.Sensitivity.ORDINARY
+            and getattr(asset, "distance", 1.0) <= settings.MEMORY_SPONTANEOUS_MAX_DISTANCE
+        ):
+            return asset
+    return None
+
+
 def _polish_hk_cantonese(text):
     replacements = (
         (r"(?i)\bsensation(?:s)?\b", "感覺"),
@@ -491,9 +507,17 @@ def send_message(request, conversation_id):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
     answer = _to_hk_traditional(_clean_repetition(answer))
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
-    answer, memory_claim_replaced = _ground_memory_claim(answer, memory_asset)
-    if memory_claim_replaced and not memory_asset:
-        memory_asset = None
+    if memory_asset:
+        answer, _ = _ground_memory_claim(answer, memory_asset)
+    else:
+        memory_asset = _spontaneous_memory_candidate(memory_candidates, recent)
+        if memory_asset:
+            answer = (
+                f"{answer.rstrip()}\n\n講起呢樣，我喺你保存嘅回憶入面搵到一張相關相片："
+                f"「{memory_asset.caption}」。你睇吓。"
+            )
+        else:
+            answer, _ = _ground_memory_claim(answer, None)
     answer, meta_refusal_replaced = _replace_meta_refusal(
         answer, adult_mode=_adult_mode_enabled(conversation.character)
     )

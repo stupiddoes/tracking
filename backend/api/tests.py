@@ -17,6 +17,7 @@ from .views import (
     _is_explicit_image_request, _memory_candidates,
     _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
+    _spontaneous_memory_candidate,
     _to_hk_traditional,
 )
 
@@ -305,6 +306,44 @@ class MemoryAssetTests(TestCase):
         self.assertIn("你保存嘅呢張相", answer)
         self.assertIn("啱啱瞓醒玩緊", answer)
         self.assertNotIn("自拍", answer)
+
+    @override_settings(MEMORY_SPONTANEOUS_MAX_DISTANCE=0.35, MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES=8)
+    def test_spontaneous_fallback_selects_only_highly_related_ordinary_memory(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="呀bear啱啱瞓醒玩緊",
+            display_policy="related", sensitivity="ordinary",
+        )
+        asset.distance = 0.22
+        self.assertEqual(_spontaneous_memory_candidate([asset], []), asset)
+
+        asset.distance = 0.36
+        self.assertIsNone(_spontaneous_memory_candidate([asset], []))
+
+    @override_settings(MEMORY_SPONTANEOUS_MAX_DISTANCE=0.35, MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES=8)
+    def test_spontaneous_fallback_respects_photo_cooldown(self):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲海邊",
+            display_policy="related", sensitivity="ordinary",
+        )
+        asset.distance = 0.20
+        conversation = Conversation.objects.create(character=self.character)
+        recent = [Message.objects.create(
+            conversation=conversation, role="assistant", content="之前分享過",
+            metadata={"attachments": [{"id": str(asset.id)}]},
+        )]
+        self.assertIsNone(_spontaneous_memory_candidate([asset], recent))
+
+    @override_settings(MEMORY_SPONTANEOUS_MAX_DISTANCE=0.35, MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES=8)
+    def test_spontaneous_fallback_excludes_restricted_memory_policies(self):
+        assets = []
+        for display_policy, sensitivity in (("on_request", "ordinary"), ("related", "adult")):
+            asset = MemoryAsset.objects.create(
+                owner=self.user, character=self.character, image=self.image(), caption="私人回憶",
+                display_policy=display_policy, sensitivity=sensitivity,
+            )
+            asset.distance = 0.10
+            assets.append(asset)
+        self.assertIsNone(_spontaneous_memory_candidate(assets, []))
 
     def test_hong_kong_photo_request_variants_are_detected(self):
         for text in ("有無呀bear D 相", "有冇 teddy bear 嘅相", "搵返嗰幅相", "睇吓張相"):

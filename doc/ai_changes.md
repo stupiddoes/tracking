@@ -12,8 +12,9 @@
 | Vector database | PostgreSQL 17 + pgvector |
 | 圖片理解 | Gemma 3 Vision；上載時建立客觀 `generated_caption` |
 | 圖片 RAG | Vision caption + 用戶 caption + tags 建立向量 |
-| 圖片檢索 | Cosine distance，預設 threshold `0.45`，最多 3 個候選 |
+| 圖片檢索 | Cosine distance，一般候選 threshold `0.45`，最多 3 個候選 |
 | 模型選圖 | Gemma 3 從候選中輸出隱藏 marker；backend 驗證候選 ID 後才附圖 |
+| Backend 自動附圖 | 模型未選圖時，只以 distance `≤0.35` 的 related／ordinary 回憶 fallback；附圖後冷卻 8 個 assistant 回覆 |
 | 長對話 | 最近 20 條訊息 + 滾動摘要 + pgvector 舊訊息召回 |
 | 回覆長度 | 每次最多 320 output tokens；不限制 conversation 總長度 |
 | 防重複 | Ollama repeat penalty + backend repetition cleanup |
@@ -91,6 +92,8 @@
 | `EMBEDDING_MODEL` | `embeddinggemma` | 圖片與訊息向量 |
 | `MEMORY_RETRIEVAL_TOP_K` | `3` | 每次交給模型的圖片候選上限 |
 | `MEMORY_MAX_COSINE_DISTANCE` | `0.45` | 圖片候選最大 cosine distance；越小越嚴格 |
+| `MEMORY_SPONTANEOUS_MAX_DISTANCE` | `0.35` | 一般對話由 backend 主動附圖的較嚴格 distance 上限 |
+| `MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES` | `8` | 最近幾個 assistant 回覆曾附圖時暫停主動附圖 |
 | `MESSAGE_RETRIEVAL_TOP_K` | `4` | 舊訊息召回上限 |
 | `MESSAGE_MAX_COSINE_DISTANCE` | `0.50` | 舊訊息最大 cosine distance |
 
@@ -108,6 +111,27 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-04 — 加入相關回憶冷卻 fallback
+
+**Commit title：** `Add relevance and cooldown photo fallback`
+
+改動：
+
+- 一般傾偈時，如果 Gemma 3 沒有輸出合法選圖 marker，backend 仍可從已完成 owner／伙伴權限過濾的候選中附上一張高度相關回憶相片。
+- 主動 fallback 使用較嚴格的 cosine distance `0.35`，只容許 `display_policy=related` 及 `sensitivity=ordinary`；`on_request`、`never` 和成人敏感圖片不會自動出現。
+- 最近 8 個 assistant 回覆內曾經附圖便進入 cooldown，不再主動附圖；明確問相仍沿用 deterministic fast path，不受一般對話 fallback 影響。
+- Fallback 保留原本 AI 回答，再加上清楚表明來自「你保存嘅回憶」的自然過場，避免角色假稱親身記得或自拍。
+- 新增 `.env` 設定供部署後調校 threshold 與冷卻長度；沒有 schema migration。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/config/settings.py`
+- `backend/api/tests.py`
+- `.env.example`
+- `doc/tech_spec.md`
+- `doc/ai_changes.md`
 
 ### 2026-09-04 — 防止模型虛構已展示相片
 
