@@ -103,6 +103,11 @@ class AdultModeTests(TestCase):
         self.assertIn("感覺", answer)
         self.assertIn("同我講", answer)
 
+    def test_invented_cantonese_verb_is_replaced(self):
+        answer = _polish_hk_cantonese("咪捉泥呀！佢啱啱起身。")
+        self.assertEqual(answer, "唔好整蠱佢呀！佢啱啱起身。")
+        self.assertNotIn("捉泥", answer)
+
 
 class MemoryAssetTests(TestCase):
     def setUp(self):
