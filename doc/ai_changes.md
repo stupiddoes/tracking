@@ -136,6 +136,7 @@ num_predict=320
 - 新增私人相簿管理 UI，可查看 Vision 描述、編輯回憶描述／標籤／日期／展示規則及刪除相片。
 - 用戶修改 caption 或 tags 後，backend 以最新用戶資料、原有 Vision caption 及標籤重新建立 `embeddinggemma` 向量，避免圖片搜尋繼續使用舊描述。
 - 原有 owner／character／18+ 權限過濾及私人圖片 endpoint 保持不變；沒有 schema migration。
+- 修正 Memorial 伙伴相片編輯表格錯誤送出 `sensitivity: null` 而令 PATCH 400；現在只有成人欄位存在時才傳送，人物／標籤更新可正常儲存及重建 embedding。
 
 涉及檔案：
 

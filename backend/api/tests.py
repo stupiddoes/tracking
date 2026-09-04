@@ -171,6 +171,18 @@ class MemoryAssetTests(TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(MemoryAsset.objects.filter(id=asset.id).exists())
 
+    @patch("api.views._embedding", return_value=[0.3] * 768)
+    def test_memorial_photo_update_does_not_require_sensitivity_field(self, _embedding_mock):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="舊人物資料",
+        )
+        response = self.client.patch(f"/api/v1/memory-assets/{asset.id}/", {
+            "caption": "更新人物資料", "tags": "呀bear",
+            "captured_at": None, "display_policy": "related",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["tags"], "呀bear")
+
     def test_admin_can_preview_private_upload_but_regular_user_cannot(self):
         asset = MemoryAsset.objects.create(
             owner=self.user, character=self.character, image=self.image(), caption="私人回憶",
