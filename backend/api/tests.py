@@ -184,7 +184,11 @@ class MemoryAssetTests(TestCase):
         self.assertEqual(asset.display_policy, "related")
         self.assertEqual(asset.embedding, [0.2] * 768)
         self.assertEqual(asset.index_status, "ready")
-        self.assertIn("圖片內容：兩個人喺海邊", embedding_mock.call_args.args[0])
+        indexed_text = embedding_mock.call_args.args[0]
+        self.assertTrue(indexed_text.startswith("title: none | text: "))
+        self.assertIn("圖片內容：兩個人喺海邊", indexed_text)
+        self.assertIn("拍攝日期：2024年6月1日", indexed_text)
+        self.assertEqual(asset.embedding_model, "embeddinggemma+search-prompt-v1")
 
         response = self.client.delete(f"/api/v1/memory-assets/{asset.id}/")
         self.assertEqual(response.status_code, 204)
@@ -392,6 +396,31 @@ class MemoryAssetTests(TestCase):
         self.assertEqual(_memory_candidates(self.character, "今日傾吓偈", self.query_vector), [])
         self.assertEqual(_memory_candidates(self.character, "你唔係有張 bear 相咩", self.query_vector), [bear])
 
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_date_only_edit_reindexes_photo(self, embedding_mock):
+        asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲", index_status="ready",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"/api/v1/memory-assets/{asset.id}/", {"captured_at": "2019-07-14"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("拍攝日期：2019年7月14日", embedding_mock.call_args.args[0])
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_photo_query_uses_search_prompt(self, embedding_mock):
+        _memory_candidates(self.character, "長洲嗰次")
+        embedding_mock.assert_called_once_with("task: search result | query: 長洲嗰次")
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_KEYWORD_BOOST=0.10)
+    def test_year_in_query_matches_capture_date(self):
+        from datetime import date
+
+        self.memory("去旅行", 0.5)
+        dated = self.memory("去旅行", 0.5, captured_at=date(2019, 7, 14))
+        candidates = _memory_candidates(self.character, "2019年去旅行嗰次", self.query_vector)
+        self.assertEqual(candidates[0], dated)
+        self.assertLess(candidates[0].score, candidates[1].score)
+
     @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.60, MEMORY_KEYWORD_BOOST=0.10)
     def test_tag_and_caption_keywords_lift_matching_photo(self):
         self.memory("海邊散步", 0.48)
@@ -446,19 +475,23 @@ class MemoryAssetTests(TestCase):
 
     @patch("api.views._vision_caption", return_value="海邊")
     @patch("api.views._embedding", return_value=[0.1] * 768)
-    def test_reindex_command_fills_missing_embeddings(self, _embedding_mock, vision_mock):
+    def test_reindex_command_fills_missing_and_outdated_embeddings(self, embedding_mock, vision_mock):
         missing = MemoryAsset.objects.create(
             owner=self.user, character=self.character, image=self.image(), caption="長洲",
             index_status="failed",
         )
-        current = self.memory("已經索引", 0.5, index_status="ready", embedding_model="embeddinggemma")
+        old_format = self.memory(
+            "舊格式", 0.5, generated_caption="公園", index_status="ready", embedding_model="embeddinggemma",
+        )
+        self.memory("已經係新格式", 0.5, index_status="ready", embedding_model="embeddinggemma+search-prompt-v1")
         call_command("reindex_memories", stdout=StringIO())
         missing.refresh_from_db()
         self.assertEqual(missing.index_status, "ready")
         self.assertEqual(missing.generated_caption, "海邊")
         vision_mock.assert_called_once()
-        current.refresh_from_db()
-        self.assertEqual(current.index_status, "ready")
+        old_format.refresh_from_db()
+        self.assertEqual(old_format.embedding_model, "embeddinggemma+search-prompt-v1")
+        self.assertEqual(embedding_mock.call_count, 2)
 
     @patch("api.views._embedding", return_value=[0.1] * 768)
     @patch("api.views.httpx.Client")

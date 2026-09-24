@@ -77,4 +77,5 @@ jobs:
              done
              test "$BUILD_OK" -eq 1
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" up -d --no-build
+             docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" exec -T backend python manage.py reindex_memories --queue
              docker compose --project-directory "$DEPLOY_PATH" -f "$DEPLOY_PATH/compose.yaml" ps'

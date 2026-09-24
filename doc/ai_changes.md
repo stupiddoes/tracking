@@ -11,8 +11,8 @@
 | Embedding model | Ollama `embeddinggemma`，768 維 |
 | Vector database | PostgreSQL 17 + pgvector |
 | 圖片理解 | Gemma 3 Vision；上載時建立客觀 `generated_caption` |
-| 圖片 RAG | Vision caption + 用戶 caption + tags 建立向量 |
-| 圖片檢索 | Cosine distance 減 tag／caption 關鍵字加分；`≤0.45` 全部作候選，否則明顯最佳一張（`≤0.60` 且領先第二名 `0.08`，或明確問相）；短句會合併上一句用戶訊息再比對 |
+| 圖片 RAG | 用戶描述 + Vision caption + tags + 拍攝日期，以 EmbeddingGemma `title: none | text:` 格式建立向量；query 用 `task: search result | query:` |
+| 圖片檢索 | Cosine distance 減 tag／caption 關鍵字加分；`≤0.45` 全部作候選，否則明顯最佳一張（`≤0.64` 且領先第二名 `0.08`，或明確問相）；短句會合併上一句用戶訊息再比對 |
 | 圖片索引 | 上載後由 Celery 背景產生 Vision caption 及 embedding，失敗自動重試 3 次；相簿顯示 `index_status`，可重試或用 `reindex_memories` 補做 |
 | 模型選圖 | Gemma 3 從候選中輸出隱藏 marker；backend 驗證候選 ID 後才附圖 |
 | Backend 自動附圖 | 模型未選圖時，只以 distance `≤0.35` 的 related／ordinary 回憶 fallback；附圖後冷卻 8 個 assistant 回覆 |
@@ -96,7 +96,7 @@
 | `EMBEDDING_MODEL` | `embeddinggemma` | 圖片與訊息向量 |
 | `MEMORY_RETRIEVAL_TOP_K` | `3` | 每次交給模型的圖片候選上限 |
 | `MEMORY_MAX_COSINE_DISTANCE` | `0.45` | 高信心圖片候選的最大分數（distance 減關鍵字加分） |
-| `MEMORY_RELAXED_MAX_DISTANCE` | `0.60` | 冇高信心候選時，最佳一張仍可入選的上限 |
+| `MEMORY_RELAXED_MAX_DISTANCE` | `0.64` | 冇高信心候選時，最佳一張仍可入選的上限 |
 | `MEMORY_MIN_MARGIN` | `0.08` | 放寬入選時，最佳一張要領先第二名幾多；明確問相時唔使 |
 | `MEMORY_KEYWORD_BOOST` | `0.10` | Tag 命中扣減的分數；caption 詞語重疊每個扣一半，總上限 1.5 倍 |
 | `MEMORY_SPONTANEOUS_MAX_DISTANCE` | `0.35` | 一般對話由 backend 主動附圖的較嚴格 distance 上限 |
@@ -118,6 +118,32 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 圖片索引改用 EmbeddingGemma 檢索格式並加入拍攝日期
+
+**Commit title：** `Use EmbeddingGemma search prompts and capture dates for photo index`
+
+改動：
+
+- 以 8 張模擬相、11 句有答案 query 及 4 句無關 query 比較 index 格式。所有方案排名第一都 11/11 正確；分別在於「最差正確匹配」同「最近無關匹配」之間嘅距離：舊格式只有 `0.04`（「食咗飯未」距飲茶相 `0.612`，貼近放寬門檻），新格式擴大到 `0.13`（`0.580` 對 `0.706`）。
+- 圖片文字改為 `title: none | text: 用戶描述…圖片內容…標籤…拍攝日期：2019年7月14日`；相片 query 改為 `task: search result | query: …`。「2019年夏天去旅行嗰次」由 `0.533` 改善至 `0.409`。
+- 測試過加入伙伴關係，冇改善（同一相簿每張相都係同一伙伴），所以冇加。
+- Message 長期記憶 embedding 維持原本對稱格式；相片檢索每條訊息多一次 embedding call。
+- `embedding_model` 記錄為 `embeddinggemma+search-prompt-v1`，`reindex_memories` 會自動重做舊格式嘅相；deploy workflow 部署後自動執行 `reindex_memories --queue`。
+- 只改拍攝日期都會重新建立索引；query 入面嘅四位數年份同拍攝年份相同會有關鍵字加分。
+- `MEMORY_RELAXED_MAX_DISTANCE` 由 `0.60` 調至 `0.64`，約為新格式正確（`0.580`）同無關（`0.706`）距離嘅中間。端到端驗證 15 句中 14 句正確，唯一失敗係含糊嘅「嗰日好熱好曬」。
+
+沒有 schema migration；需要 reindex（deploy 會自動排隊處理）。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/management/commands/reindex_memories.py`
+- `backend/config/settings.py`
+- `backend/api/tests.py`
+- `.env.example`
+- `.github/workflows/deploy.yml`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 圖片索引改為背景處理，檢索改用相對排名
 

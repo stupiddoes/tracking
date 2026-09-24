@@ -1,14 +1,13 @@
-from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from api.models import MemoryAsset
 from api.tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
-from api.views import _index_memory_asset
+from api.views import _index_memory_asset, _memory_embedding_model
 
 
 class Command(BaseCommand):
-    help = "Index memory photos that are missing, failed, or embedded with a different model."
+    help = "Index memory photos that are missing, failed, or embedded with a different model or index format."
 
     def add_arguments(self, parser):
         parser.add_argument("--all", action="store_true", help="Re-embed every photo.")
@@ -21,7 +20,7 @@ class Command(BaseCommand):
             assets = assets.filter(
                 ~Q(index_status=MemoryAsset.IndexStatus.READY)
                 | Q(embedding__isnull=True)
-                | ~Q(embedding_model=settings.EMBEDDING_MODEL)
+                | ~Q(embedding_model=_memory_embedding_model())
             )
         total = assets.count()
         failed = 0

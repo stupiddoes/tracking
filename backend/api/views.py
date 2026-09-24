@@ -108,8 +108,27 @@ def _vision_caption(image_field):
         return _to_hk_traditional(response.json()["message"]["content"].strip())
 
 
+# EmbeddingGemma retrieval prompts; photos and queries must use the same pair.
+_MEMORY_INDEX_FORMAT = "search-prompt-v1"
+
+
+def _memory_embedding_model():
+    return f"{settings.EMBEDDING_MODEL}+{_MEMORY_INDEX_FORMAT}"
+
+
+def _memory_query_text(text):
+    return f"task: search result | query: {text}"
+
+
+def _format_captured_at(value):
+    return f"{value.year}年{value.month}月{value.day}日" if value else "未提供"
+
+
 def _memory_index_text(asset):
-    return f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
+    return (
+        f"title: none | text: 用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n"
+        f"標籤：{asset.tags}\n拍攝日期：{_format_captured_at(asset.captured_at)}"
+    )
 
 
 def _index_memory_asset(asset_id, refresh_caption=True):
@@ -129,7 +148,7 @@ def _index_memory_asset(asset_id, refresh_caption=True):
     MemoryAsset.objects.filter(id=asset.id).update(
         generated_caption=asset.generated_caption,
         embedding=vector,
-        embedding_model=settings.EMBEDDING_MODEL,
+        embedding_model=_memory_embedding_model(),
         index_status=MemoryAsset.IndexStatus.READY,
         index_error=index_error,
     )
@@ -171,7 +190,7 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         asset = serializer.save()
-        if {"caption", "tags"}.intersection(serializer.validated_data):
+        if {"caption", "tags", "captured_at"}.intersection(serializer.validated_data):
             asset.index_status = MemoryAsset.IndexStatus.PENDING
             asset.save(update_fields=("index_status",))
             _queue_memory_index(asset, refresh_caption=False)
@@ -323,7 +342,7 @@ _CONTEXT_DISTANCE_PENALTY = 0.03
 
 def _keyword_tokens(text):
     lowered = text.lower()
-    tokens = set(re.findall(r"[a-z]{3,}", lowered))
+    tokens = set(re.findall(r"[a-z]{3,}|\d{4}", lowered))
     for run in re.findall(r"[\u4e00-\u9fff]+", lowered):
         tokens.update(
             run[i:i + 2] for i in range(len(run) - 1)
@@ -338,7 +357,8 @@ def _keyword_boost(asset, query):
     tags = (tag.strip().lower() for tag in re.split(r"[,，、;；/\s]+", asset.tags))
     if any(len(tag) >= 2 and tag in lowered for tag in tags):
         boost += settings.MEMORY_KEYWORD_BOOST
-    shared = _keyword_tokens(query) & _keyword_tokens(f"{asset.caption} {asset.generated_caption} {asset.tags}")
+    year = asset.captured_at.year if asset.captured_at else ""
+    shared = _keyword_tokens(query) & _keyword_tokens(f"{asset.caption} {asset.generated_caption} {asset.tags} {year}")
     boost += min(len(shared), 2) * settings.MEMORY_KEYWORD_BOOST / 2
     return min(boost, settings.MEMORY_KEYWORD_BOOST * 1.5)
 
@@ -349,7 +369,7 @@ def _memory_candidates(character, content, vector=None, context_vector=None):
     if not (character.adult_content_enabled and profile and profile.adult_confirmed):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
     try:
-        vector = vector or _embedding(content)
+        vector = vector or _embedding(_memory_query_text(content))
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         return []
     ranked = assets.exclude(embedding__isnull=True).defer("embedding").annotate(
@@ -542,18 +562,19 @@ def send_message(request, conversation_id):
         user_message.save(update_fields=("embedding", "embedding_model"))
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         pass
-    context_vector = None
-    if query_vector and len(content) <= _CONTEXT_QUERY_MAX_CHARS:
-        previous = conversation.messages.filter(
-            role=Message.Role.USER, created_at__lt=user_message.created_at,
-        ).order_by("-created_at").first()
-        if previous:
-            try:
-                context_vector = _embedding(f"{previous.content[-300:]}\n{content}")
-            except (httpx.HTTPError, KeyError, IndexError, ValueError):
-                pass
+    memory_vector = context_vector = None
+    if query_vector:
+        try:
+            memory_vector = _embedding(_memory_query_text(content))
+            previous = conversation.messages.filter(
+                role=Message.Role.USER, created_at__lt=user_message.created_at,
+            ).order_by("-created_at").first() if len(content) <= _CONTEXT_QUERY_MAX_CHARS else None
+            if previous:
+                context_vector = _embedding(_memory_query_text(f"{previous.content[-300:]}\n{content}"))
+        except (httpx.HTTPError, KeyError, IndexError, ValueError):
+            pass
     explicit_image_request = _is_explicit_image_request(content)
-    memory_candidates = _memory_candidates(conversation.character, content, query_vector, context_vector)
+    memory_candidates = _memory_candidates(conversation.character, content, memory_vector, context_vector)
     if explicit_image_request:
         memory_asset = memory_candidates[0] if memory_candidates else None
         answer, _ = _ground_memory_claim("", memory_asset)
