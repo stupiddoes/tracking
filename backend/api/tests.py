@@ -694,3 +694,69 @@ class ArchiveModeTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 200, response.data)
                 self.assertEqual(response.data["message"]["content"] != reply, replaced)
+
+
+class ArchiveGroundingTests(TestCase):
+    """Real gemma3:4b archive-mode outputs; sources are what the user had actually said."""
+
+    sources = "婆婆\n外婆\n住喺深水埗，鍾意飲茶同打麻雀\n佢以前成日帶我去公園\n佢以前去邊間茶樓"
+
+    def check(self, answer):
+        from .grounding import check_archive_answer
+
+        return check_archive_answer(answer, self.sources, "婆婆")
+
+    def test_invented_details_are_removed(self):
+        for answer, invented in (
+            ("聽日，婆婆嗰陣最鍾意食啲點心，特別係燒賣同叉燒包。佢話燒賣嘅湯汁要夠滾先至好味㗎嘛！ 你估佢哋喺邊度食呢啲嘢？", "燒賣"),
+            ("你之前講過婆婆好鍾意飲茶，而係附近啲老茶樓，例如喺深水埗區或者長沙街嗰度。你記得冇特定名嘅茶樓嗎？", "長沙街"),
+            ("婆婆最鍾意去福華街嗰間茶樓，佢1998年開始每朝都去。", "1998"),
+            ("婆婆成日話「做人最緊要開心」。", "開心"),
+            ("你之前講過婆婆好鍾意去深水埗嘅順記茶房飲茶，但係佢哋通常會揀邊間茶樓先？ 例如順記、或係其他地方呢？", "順記茶房"),
+            ("你之前講過婆婆好鍾意飲茶，但就唔知佢以前主要去邊間茶樓飲㗎啦？佢嗰陣嘅茶樓好多都有呀，例如順記、永光都係比較出名嘅。你記得冇乜其他茶樓嗎？", "永光"),
+            ("你之前講過佢哋食嘅嘢有啲點心、燒鵝、叉燒包，但就冇話佢最鍾意食咩，你記得嗎？", "燒鵝"),
+        ):
+            with self.subTest(invented=invented):
+                checked, action = self.check(answer)
+                self.assertIn(action, ("trimmed", "replaced"))
+                self.assertNotIn(invented, checked)
+                self.assertTrue(checked.rstrip().endswith(("？", "。")))
+
+    def test_supported_facts_and_questions_are_kept(self):
+        for answer in (
+            "你之前講過婆婆鍾意飲茶，但佢最鍾意食咩我唔知，你記得嗎？ 係點呀？例如燒鵝、叉燒定啲乜啊？",
+            "你之前講過你婆婆以前成日帶你去公園，嗰陣你細個點樣？喺邊間公園玩㗎呀？",
+            "我唔係婆婆呀，我只係一個幫你整理回憶嘅助手啫。你之前話住喺深水埗，婆婆嗰陣鍾意飲茶同打麻雀。",
+            "婆婆住喺深水埗區，附近應該有好多老茶樓，你記得佢去邊間嗎？",
+            "聽落嚟真係好心酸啊。你諗住邊啲嘢就覺得好掛住佢㗎喇？",
+            "你之前講過婆婆經常帶你去公園，嗰陣嘅公園係咪喺深水埗度㗎？或者你記得點解會帶你去呢個公園嗎？",
+            "你之前講過婆婆鍾意飲茶，但佢最鍾意食咩我唔知，你記得嗎？ 例如，佢係唔係好鐘意食點心、燒賣定係其他嘢呀？",
+            "我記得你講過佢鍾意打麻雀，你寫過日記記低嗎？",
+        ):
+            with self.subTest(answer=answer[:12]):
+                self.assertEqual(self.check(answer), (answer, ""))
+
+    def test_saved_photo_date_supports_a_year(self):
+        from .grounding import check_archive_answer
+
+        answer = "你2019年同婆婆去過長洲。"
+        self.assertEqual(check_archive_answer(answer, self.sources, "婆婆")[1], "replaced")
+        self.assertEqual(check_archive_answer(answer, self.sources + "\n去長洲\n2019年7月14日", "婆婆"), (answer, ""))
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    @patch("api.views.httpx.Client")
+    def test_archive_reply_is_checked_but_other_modes_are_not(self, client_mock, _embedding_mock):
+        user = get_user_model().objects.create_user(username="grounding-owner", password="testing-password")
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=user).key}")
+        reply = "婆婆最鍾意去福華街嗰間茶樓。你記得佢同邊個去嗎？"
+        client_mock.return_value.__enter__.return_value.post.return_value.json.return_value = {"message": {"content": reply}}
+        for mode, checked in (("archive", True), ("memorial", False)):
+            with self.subTest(mode=mode):
+                character = Character.objects.create(owner=user, name="婆婆", mode=mode, description="鍾意飲茶")
+                conversation = Conversation.objects.create(character=character)
+                response = client.post(f"/api/v1/conversations/{conversation.id}/messages", {"content": "佢去邊間茶樓？"}, format="json")
+                self.assertEqual(response.status_code, 200, response.data)
+                message = response.data["message"]
+                self.assertEqual("福華街" not in message["content"], checked)
+                self.assertEqual(message["metadata"].get("grounding_check"), "trimmed" if checked else None)

@@ -23,7 +23,7 @@
 | 語音輸出 | 已停用；frontend 不提供朗讀，backend 不再要求語音標記或產生 speech metadata |
 | 成人模式 | 帳戶 18+ 確認及幻想伙伴開關同時成立，才容許雙方自願的成人露骨內容 |
 | Memorial 模式 | 不可聲稱自己是死者、死者復活或親身記得相片事件 |
-| 回憶整理模式 | AI 係回憶整理助手，用第三身講相簿主角，唔扮演佢；冇資料唔好作細節，要反問用戶；可以承認自己係 AI |
+| 回憶整理模式 | AI 係回憶整理助手，用第三身講相簿主角，唔扮演佢；冇資料唔好作細節，要反問用戶；可以承認自己係 AI；輸出經規則檢查，刪走資料冇出現過嘅地點、店名、食物、日子同引述 |
 
 ## 2. AI request flow
 
@@ -62,6 +62,7 @@
 | `backend/api/fixtures/memory_retrieval_vectors.json` | 真 `embeddinggemma` 向量；由指令產生，唔好手改 |
 | `backend/api/management/commands/record_retrieval_vectors.py` | 用 Ollama 重新錄製上述向量 |
 | `backend/api/management/commands/reindex_memories.py` | 補做未索引、失敗或 embedding model 不同的圖片索引 |
+| `backend/api/grounding.py` | 回憶整理模式輸出檢查：地點、店名、食物、數字日期、引述說話要喺用戶資料出現過 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
@@ -123,6 +124,40 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 回憶整理模式加入輸出檢查
+
+**Commit title：** `Check archive replies against the user's own material`
+
+改動：
+
+- 新增 `api/grounding.py`，唔再 call 模型，純規則檢查。會捉以下五類具體細節：
+  - 地點：後綴包括街、道、區、茶樓、茶房、公園等
+  - 香港店名：X記，排除「日記」、「記得」等
+  - 數字日期：年、月、歲、號、蚊等
+  - 常見港式食物
+  - 相簿主角嘅引述說話：「佢話……」或者「」引號
+- 呢啲細節要喺資料出現過先保留。資料包括伙伴名稱、關係、背景、對話摘要、用戶訊息、召回嘅舊用戶訊息同候選相片嘅描述、Vision caption、tags、拍攝日期。AI 自己講過嘅說話刻意唔計入，避免作過一次之後當成事實。
+- 問句最後一個分句只係發問，唔當聲稱，例如「例如燒鵝定叉燒呀？」會保留。
+- 有問題嘅句子會被刪走；剩返嘅內容唔係問句就補一句「呢部分我手上冇資料，唔想亂估」。刪完冇嘢剩就改成反問用戶。
+- Message metadata 只記錄 `grounding_check: trimmed|replaced`，唔保存被刪內容，符合 guardrail 記錄最少化原則。
+- 只套用喺回憶整理模式；回憶連結同幻想伙伴不變（有測試確認）。
+
+驗證：
+
+- 用之前收集嘅 13 句真 `gemma3:4b` 輸出：5 句虛構全部捉到，8 句正常回答冇誤刪。
+- 再跑 8 次真模型：初版漏咗「順記茶房」同「順記、永光」，補咗茶房類後綴同「X記」店名規則後捉到，並加入測試。
+
+已知限制：冇特徵嘅專有名詞，例如單獨出現嘅「永光」，規則捉唔到，只係因為同句有「順記」先被刪走。規則要跟真實對話持續補充。
+
+沒有 schema migration。
+
+涉及檔案：
+
+- `backend/api/grounding.py`
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 加入「回憶整理」模式
 

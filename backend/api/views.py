@@ -19,6 +19,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from .grounding import check_archive_answer
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
@@ -519,6 +520,19 @@ def _adult_mode_enabled(character):
     return bool(character.adult_content_enabled and profile and profile.adult_confirmed)
 
 
+def _archive_sources(conversation, history, memory_candidates, recalled_messages):
+    """Material the archive assistant may state facts from; its own past replies are excluded."""
+    character = conversation.character
+    parts = [character.name, character.relationship, character.description, conversation.summary]
+    parts += [message["content"] for message in history if message["role"] == Message.Role.USER]
+    parts += [message.content for message in recalled_messages if message.role == Message.Role.USER]
+    for asset in memory_candidates:
+        parts += [asset.caption, asset.generated_caption, asset.tags]
+        if asset.captured_at:
+            parts.append(_format_captured_at(asset.captured_at))
+    return "\n".join(part for part in parts if part)
+
+
 def _clean_display_markdown(text):
     cleaned = re.sub(r"\*\*|__|`", "", text)
     cleaned = re.sub(r"(?m)^#{1,6}\s*", "", cleaned)
@@ -672,10 +686,15 @@ def send_message(request, conversation_id):
         memory_asset = None
     answer = _clean_display_markdown(answer)
     answer = _polish_hk_cantonese(answer)
+    message_metadata = {}
+    if conversation.character.mode == Character.Mode.ARCHIVE:
+        sources = _archive_sources(conversation, history, memory_candidates, recalled_messages)
+        answer, grounding_action = check_archive_answer(answer, sources, conversation.character.name)
+        if grounding_action:
+            message_metadata["grounding_check"] = grounding_action
     attachments = []
     if memory_asset:
         attachments.append({"id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
-    message_metadata = {}
     if attachments:
         message_metadata["attachments"] = attachments
     msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=message_metadata)
