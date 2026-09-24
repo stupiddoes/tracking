@@ -17,7 +17,7 @@ from django.urls import reverse
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_display_markdown, _clean_repetition, _extract_memory_selection, _ground_memory_claim,
-    _index_memory_asset,
+    _index_memory_asset, _memory_index_text,
     _is_explicit_image_request, _memory_candidates,
     _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
@@ -598,3 +598,47 @@ class LongConversationTests(TestCase):
         self.assertIn("通常2至5句", prompt)
         self.assertIn("禁止輸出簡體中文字", prompt)
         self.assertIn("不可聲稱對話已被終止", prompt)
+
+
+class MemoryRetrievalRegressionTests(TestCase):
+    """Replays recorded embeddinggemma vectors for fixed Cantonese cases through the real ranking."""
+
+    def test_cantonese_photo_retrieval_cases(self):
+        from django.conf import settings
+
+        from .retrieval_eval import load_cases, load_vectors, photo_asset, query_texts, required_texts
+
+        cases = load_cases()
+        model, vectors = load_vectors()
+        missing = [text for text in required_texts(cases) if text not in vectors]
+        self.assertTrue(
+            not missing and model == settings.EMBEDDING_MODEL,
+            f"Recorded vectors are stale ({len(missing)} missing, model {model!r}); "
+            "run `python manage.py record_retrieval_vectors` with Ollama available.",
+        )
+        user = get_user_model().objects.create_user(username="retrieval-eval", password="testing-password")
+        character = Character.objects.create(owner=user, name="媽媽", mode="memorial")
+        keys = {}
+        for key, fields in cases["photos"].items():
+            asset = photo_asset(
+                fields, owner=user, character=character, image=f"eval/{key}.png",
+                display_policy="related", index_status="ready",
+            )
+            asset.embedding = vectors[_memory_index_text(asset)]
+            asset.save()
+            keys[asset.id] = key
+
+        failures = []
+        for case in cases["queries"]:
+            if case.get("known_failure"):
+                continue
+            query_text, context_text = query_texts(case)
+            candidates = _memory_candidates(
+                character, case["text"], vectors[query_text], vectors[context_text] if context_text else None,
+            )
+            got = keys[candidates[0].id] if candidates else None
+            if got != case["expect"]:
+                scores = ", ".join(f"{keys[c.id]}={c.score:.3f}" for c in candidates) or "none"
+                failures.append(f"{case['text']}: expected {case['expect']}, got {got} ({scores})")
+        if failures:
+            self.fail("Photo retrieval regressed:\n" + "\n".join(failures))

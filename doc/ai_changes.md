@@ -56,6 +56,10 @@
 |---|---|
 | `backend/api/views.py` | Ollama chat／embed requests、Vision caption、圖片索引流程、prompt、圖片候選檢索及關鍵字加分、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換及錯誤回應 |
 | `backend/api/tasks.py` | Celery 圖片索引 task、重試及失敗狀態 |
+| `backend/api/retrieval_eval.py` | 廣東話相片檢索回歸測試：讀取 cases、產生 index／query 文字、解碼錄低嘅向量 |
+| `backend/api/fixtures/memory_retrieval_cases.json` | 固定測試相片及 query（預期結果、已知失敗） |
+| `backend/api/fixtures/memory_retrieval_vectors.json` | 真 `embeddinggemma` 向量；由指令產生，唔好手改 |
+| `backend/api/management/commands/record_retrieval_vectors.py` | 用 Ollama 重新錄製上述向量 |
 | `backend/api/management/commands/reindex_memories.py` | 補做未索引、失敗或 embedding model 不同的圖片索引 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
@@ -118,6 +122,33 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 加入廣東話相片檢索回歸測試
+
+**Commit title：** `Add Cantonese photo retrieval regression test`
+
+改動：
+
+- 8 張模擬相、18 句 query（11 句應搵到、1 句靠上一句訊息追問、5 句唔應該出相、1 句已知失敗）固定喺 `memory_retrieval_cases.json`。
+- 真 `embeddinggemma` 向量錄低喺 `memory_retrieval_vectors.json`（27 個，約 110 KB）。`MemoryRetrievalRegressionTests` 將向量寫入測試 DB，經真正 `_memory_candidates` 及 pgvector 排名，唔需要 Ollama。
+- 改門檻、關鍵字加分或者排名邏輯，只要令任何一句結果改變，測試就會失敗並列出每句實際分數。已驗證：將放寬門檻設為 `0.80` 會令 5 句誤中；設為 `0.45` 會令 4 句搵唔到。
+- 改 index 或 query 文字格式後，測試會提示向量過期；用 Ollama 執行 `python manage.py record_retrieval_vectors` 重新錄製。
+- `send_message` 同測試共用新 helper `_memory_context_text`，確保追問 query 文字一致；行為不變。
+- 標記為 `known_failure` 嘅 case 唔會 assert，只作記錄；將來改善後可以移除標記。
+
+沒有 schema migration；production 行為不變。
+
+新增測試 case：喺 `memory_retrieval_cases.json` 加 photo 或 query，然後執行 `record_retrieval_vectors`。如果 container 冇權限寫入，可以用 `docker compose run --rm -u root -v "$PWD/backend:/app" backend python manage.py record_retrieval_vectors`。
+
+涉及檔案：
+
+- `backend/api/retrieval_eval.py`
+- `backend/api/fixtures/memory_retrieval_cases.json`
+- `backend/api/fixtures/memory_retrieval_vectors.json`
+- `backend/api/management/commands/record_retrieval_vectors.py`
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 圖片索引改用 EmbeddingGemma 檢索格式並加入拍攝日期
 

@@ -1,0 +1,32 @@
+{
+  "photos": {
+    "bear": {"caption": "阿妹抱住啡色泰迪熊喺床上瞓覺", "generated_caption": "一個小朋友抱住啡色毛公仔，喺白色床單上睡覺", "tags": "公仔,熊仔", "captured_at": "2015-05-03"},
+    "beach": {"caption": "去長洲海灘", "generated_caption": "兩個人喺沙灘上面向大海，天氣晴朗", "tags": "旅行,海", "captured_at": "2019-07-14"},
+    "cake": {"caption": "阿爸60歲生日", "generated_caption": "一家人圍住一個有蠟燭嘅蛋糕，室內燈光溫暖", "tags": "生日", "captured_at": "2021-03-02"},
+    "dog": {"caption": "", "generated_caption": "一隻金毛尋回犬坐喺公園草地上，伸出舌頭", "tags": "", "captured_at": null},
+    "dimsum": {"caption": "同婆婆飲茶", "generated_caption": "茶樓枱面上有蝦餃、燒賣同一壺茶，一位老婦人微笑", "tags": "", "captured_at": "2018-01-20"},
+    "taichi": {"caption": "媽媽朝早喺公園打太極", "generated_caption": "一位中年婦人喺公園樹下做緩慢動作，周圍有幾個老人", "tags": "運動", "captured_at": "2017-10-08"},
+    "xmas": {"caption": "屋企聖誕樹", "generated_caption": "客廳入面有一棵掛滿燈飾嘅聖誕樹，下面有禮物", "tags": "聖誕", "captured_at": "2020-12-25"},
+    "grad": {"caption": "我中學畢業禮", "generated_caption": "一個穿畢業袍嘅年輕人拎住證書，旁邊有位婦人", "tags": "畢業", "captured_at": "2012-07-05"}
+  },
+  "queries": [
+    {"text": "你記唔記得嗰隻熊仔", "expect": "bear"},
+    {"text": "我想睇返去海邊嗰次", "expect": "beach"},
+    {"text": "阿爸生日嗰晚", "expect": "cake"},
+    {"text": "有冇我哋隻狗嘅相", "expect": "dog"},
+    {"text": "好掛住同婆婆去酒樓", "expect": "dimsum"},
+    {"text": "2019年夏天去旅行嗰次", "expect": "beach"},
+    {"text": "有冇2020年聖誕節嘅相", "expect": "xmas"},
+    {"text": "你以前成日喺公園做運動", "expect": "taichi"},
+    {"text": "我畢業嗰日你有嚟", "expect": "grad"},
+    {"text": "你仲記得12年我畢業嗎", "expect": "grad"},
+    {"text": "搵返阿爸生日嗰張相", "expect": "cake"},
+    {"text": "嗰張呢", "previous": "記唔記得我哋去長洲", "expect": "beach"},
+    {"text": "嗰日好熱好曬", "expect": "beach", "known_failure": "太含糊：距離 0.640，只領先第二名 0.069"},
+    {"text": "你有冇相信過我？", "expect": null},
+    {"text": "今日返工好攰", "expect": null},
+    {"text": "我好想你", "expect": null},
+    {"text": "食咗飯未", "expect": null},
+    {"text": "有冇雪山嘅相", "expect": null}
+  ]
+}

@@ -120,6 +120,13 @@ def _memory_query_text(text):
     return f"task: search result | query: {text}"
 
 
+def _memory_context_text(previous_content, content):
+    """Query text for a short follow-up, or None when the message stands alone."""
+    if not previous_content or len(content) > _CONTEXT_QUERY_MAX_CHARS:
+        return None
+    return _memory_query_text(f"{previous_content[-300:]}\n{content}")
+
+
 def _format_captured_at(value):
     return f"{value.year}年{value.month}月{value.day}日" if value else "未提供"
 
@@ -568,9 +575,10 @@ def send_message(request, conversation_id):
             memory_vector = _embedding(_memory_query_text(content))
             previous = conversation.messages.filter(
                 role=Message.Role.USER, created_at__lt=user_message.created_at,
-            ).order_by("-created_at").first() if len(content) <= _CONTEXT_QUERY_MAX_CHARS else None
-            if previous:
-                context_vector = _embedding(_memory_query_text(f"{previous.content[-300:]}\n{content}"))
+            ).order_by("-created_at").first()
+            context_text = _memory_context_text(previous and previous.content, content)
+            if context_text:
+                context_vector = _embedding(context_text)
         except (httpx.HTTPError, KeyError, IndexError, ValueError):
             pass
     explicit_image_request = _is_explicit_image_request(content)
