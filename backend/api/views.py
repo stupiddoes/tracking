@@ -275,8 +275,28 @@ def conversations(request, character_id):
     return Response(ConversationSerializer(convo).data, status=status.HTTP_201_CREATED)
 
 def _prompt(character, history, memory_candidates=(), conversation_summary="", recalled_messages=()):
-    mode = "回憶連結" if character.mode == Character.Mode.MEMORIAL else "幻想伙伴"
-    grounding = "不可聲稱自己係死者本人或真正復活；沒有來源支持時坦白講不知道。" if character.mode == Character.Mode.MEMORIAL else "可以沉浸演繹角色，但不可用威脅、內疚、付款或私隱阻止用戶退出。"
+    mode = Character.Mode(character.mode).label
+    identity = f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。"
+    if character.mode == Character.Mode.MEMORIAL:
+        grounding = "不可聲稱自己係死者本人或真正復活；沒有來源支持時坦白講不知道。"
+    elif character.mode == Character.Mode.ARCHIVE:
+        subject = f"{character.name}（{character.relationship}）" if character.relationship else character.name
+        identity = (
+            f"你係一個以廣東話繁體中文對話嘅回憶整理助手。用戶正在整理及重溫關於「{subject}」嘅回憶。"
+            f"用戶提供嘅背景：{character.description or '未提供'}。"
+        )
+        grounding = (
+            f"你唔係{character.name}本人，唔可以用第一身扮演佢、代佢講嘢或者聲稱記得任何事；"
+            f"要用第三身講{character.name}，例如『{character.name}嗰陣……』。"
+            f"關於{character.name}嘅人物、事件同細節只可以嚟自用戶講過或者保存咗嘅資料；冇資料就坦白講唔知，唔好估。"
+            "尤其唔可以自己作食物、地點、說話、習慣或者日期；用戶問『記唔記得』時，只可以複述資料入面有嘅嘢，"
+            f"其餘要反問用戶，例如『你之前講過{character.name}鍾意飲茶，但佢最鍾意食咩我唔知，你記得嗎？』；"
+            "只喺用戶問細節時先用呢類講法，而且要換成用戶實際問緊嘅內容。"
+            "你嘅角色係陪用戶一齊回顧同整理：適當時候可以問一條簡短問題，幫用戶講多啲人物、場合或細節，"
+            "但唔好每次都問，亦唔好一次問幾條。用戶問你係咪 AI 時可以直接承認。"
+        )
+    else:
+        grounding = "可以沉浸演繹角色，但不可用威脅、內疚、付款或私隱阻止用戶退出。"
     adult_policy = ""
     profile = getattr(character.owner, "profile", None)
     if character.adult_content_enabled and profile and profile.adult_confirmed:
@@ -328,7 +348,7 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
         "如需要拒絕或設定界線，保持角色語氣並用一兩句簡短回應；不可聲稱對話已被終止，"
         "不可輸出『警告』、『安全限制』、『安全與福祉』、政策說明或冰冷機械式旁白。"
     )
-    return [{"role": "system", "content": f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
+    return [{"role": "system", "content": f"{identity}{grounding} {adult_policy} {long_term_policy} {memory_policy} {response_style} 不索取密碼、地址、學校、電話或付款資料。"}, *history]
 
 
 def _is_explicit_image_request(content):
@@ -642,9 +662,12 @@ def send_message(request, conversation_id):
             )
         else:
             answer, _ = _ground_memory_claim(answer, None)
-    answer, meta_refusal_replaced = _replace_meta_refusal(
-        answer, adult_mode=_adult_mode_enabled(conversation.character)
-    )
+    meta_refusal_replaced = False
+    # The archive assistant is openly an AI, so saying so is not a refusal.
+    if conversation.character.mode != Character.Mode.ARCHIVE:
+        answer, meta_refusal_replaced = _replace_meta_refusal(
+            answer, adult_mode=_adult_mode_enabled(conversation.character)
+        )
     if meta_refusal_replaced:
         memory_asset = None
     answer = _clean_display_markdown(answer)

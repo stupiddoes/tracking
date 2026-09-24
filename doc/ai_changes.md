@@ -23,6 +23,7 @@
 | 語音輸出 | 已停用；frontend 不提供朗讀，backend 不再要求語音標記或產生 speech metadata |
 | 成人模式 | 帳戶 18+ 確認及幻想伙伴開關同時成立，才容許雙方自願的成人露骨內容 |
 | Memorial 模式 | 不可聲稱自己是死者、死者復活或親身記得相片事件 |
+| 回憶整理模式 | AI 係回憶整理助手，用第三身講相簿主角，唔扮演佢；冇資料唔好作細節，要反問用戶；可以承認自己係 AI |
 
 ## 2. AI request flow
 
@@ -122,6 +123,36 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 加入「回憶整理」模式
+
+**Commit title：** `Add archive mode that talks about loved ones in third person`
+
+改動：
+
+- 新增 `Character.Mode.ARCHIVE`（`archive`／回憶整理）。AI 係回憶整理助手，同用戶一齊講相簿主角，用第三身稱呼，唔扮演、唔代佢講嘢、唔聲稱記得。
+- Prompt 要求人物、事件同細節只可以嚟自用戶資料；用戶問「記唔記得」時要反問，並附一個具體例子。
+- 回憶整理模式唔行 `_replace_meta_refusal`，因為助手承認自己係 AI 係正確答案；回憶連結及幻想伙伴行為不變（有測試確認 prompt 開頭一字不改）。
+- 成人內容沿用原有限制，只限幻想伙伴，所以回憶整理模式開唔到。
+- Frontend 新增模式選項並設為預設；模式說明顯示「AI 會用第三身同你一齊講佢，唔會扮演佢」。
+
+真 `gemma3:4b` 測試結果：
+
+- 第三身同「我唔係婆婆」全部做到。
+- 最初版本會虛構細節（背景只寫「鍾意飲茶」，模型答「燒賣同叉燒包」）。加入具體反問例子後，食物問題 5 次都冇再作。
+- 用抽象句式模板代替具體例子更差：模型聲稱「你之前講過燒鵝、叉燒包」，所以保留具體例子。代價係模型間中會照抄例子句。
+- 仍未解決：「佢以前去邊間茶樓」會作出「長沙街」等地點。單靠 prompt 做唔到可靠嘅防虛構，下一步需要輸出檢查或者更大模型。
+
+Migration：`0008_character_archive_mode`（只改 choices）。
+
+涉及檔案：
+
+- `backend/api/models.py`
+- `backend/api/migrations/0008_character_archive_mode.py`
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `frontend/src/App.tsx`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 加入廣東話相片檢索回歸測試
 

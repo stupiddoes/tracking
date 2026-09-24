@@ -642,3 +642,55 @@ class MemoryRetrievalRegressionTests(TestCase):
                 failures.append(f"{case['text']}: expected {case['expect']}, got {got} ({scores})")
         if failures:
             self.fail("Photo retrieval regressed:\n" + "\n".join(failures))
+
+
+class ArchiveModeTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="archive-owner", password="testing-password")
+        token = Token.objects.create(user=self.user)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+
+    def test_archive_character_can_be_created_without_adult_content(self):
+        payload = {"name": "婆婆", "mode": "archive", "relationship": "外婆", "description": "鍾意飲茶"}
+        response = self.client.post("/api/v1/characters/", payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["mode"], "archive")
+
+        Profile.objects.create(user=self.user, adult_confirmed_at="2026-08-21T00:00:00Z")
+        response = self.client.post("/api/v1/characters/", {**payload, "adult_content_enabled": True}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_archive_prompt_talks_about_the_person_in_third_person(self):
+        character = Character.objects.create(owner=self.user, name="婆婆", mode="archive", relationship="外婆")
+        prompt = _prompt(character, [])[0]["content"]
+        self.assertTrue(prompt.startswith("你係一個以廣東話繁體中文對話嘅回憶整理助手"))
+        self.assertIn("關於「婆婆（外婆）」嘅回憶", prompt)
+        self.assertIn("唔可以用第一身扮演佢", prompt)
+        self.assertIn("要用第三身講婆婆", prompt)
+        self.assertNotIn("角色名", prompt)
+
+    def test_existing_modes_keep_their_prompt_identity(self):
+        memorial = Character.objects.create(owner=self.user, name="媽媽", mode="memorial", description="溫柔")
+        self.assertTrue(_prompt(memorial, [])[0]["content"].startswith(
+            "你係一個以廣東話繁體中文對話嘅 AI 角色。模式：回憶連結。角色名：媽媽。背景：溫柔。不可聲稱自己係死者本人"
+        ))
+        fictional = Character.objects.create(owner=self.user, name="阿晴", mode="fictional")
+        self.assertIn("模式：幻想伙伴。角色名：阿晴。", _prompt(fictional, [])[0]["content"])
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    @patch("api.views.httpx.Client")
+    def test_archive_assistant_may_say_it_is_an_ai(self, client_mock, _embedding_mock):
+        reply = "我係AI助手，唔係婆婆本人。不過你講過佢好鍾意飲茶，可以講多啲嗎？"
+        client_mock.return_value.__enter__.return_value.post.return_value.json.return_value = {
+            "message": {"content": reply},
+        }
+        for mode, replaced in (("archive", False), ("memorial", True)):
+            with self.subTest(mode=mode):
+                character = Character.objects.create(owner=self.user, name="婆婆", mode=mode)
+                conversation = Conversation.objects.create(character=character)
+                response = self.client.post(
+                    f"/api/v1/conversations/{conversation.id}/messages", {"content": "你係咪婆婆？"}, format="json",
+                )
+                self.assertEqual(response.status_code, 200, response.data)
+                self.assertEqual(response.data["message"]["content"] != reply, replaced)

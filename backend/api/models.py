@@ -16,6 +16,7 @@ class Character(models.Model):
     class Mode(models.TextChoices):
         MEMORIAL = "memorial", "回憶連結"
         FICTIONAL = "fictional", "幻想伙伴"
+        ARCHIVE = "archive", "回憶整理"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="characters", null=True)
