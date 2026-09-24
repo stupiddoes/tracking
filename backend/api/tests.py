@@ -760,3 +760,81 @@ class ArchiveGroundingTests(TestCase):
                 message = response.data["message"]
                 self.assertEqual("福華街" not in message["content"], checked)
                 self.assertEqual(message["metadata"].get("grounding_check"), "trimmed" if checked else None)
+
+
+class StoryInterviewTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="story-owner", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="婆婆", mode="archive", relationship="外婆")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+        self.asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=SimpleUploadedFile("a.png", b"x"), caption="同婆婆飲茶",
+            generated_caption="茶樓枱面上有蝦餃同一壺茶，一位老婦人微笑", tags="飲茶", index_status="ready",
+        )
+        self.answers = [
+            {"question": "相入面有邊啲人？", "answer": "婆婆同我，仲有阿姨"},
+            {"question": "大約係幾時、喺邊度影㗎？", "answer": "2016年喺旺角嘅金鳳茶樓"},
+        ]
+
+    def draft(self, model_reply):
+        with patch("api.views._generate_story_json", return_value=model_reply):
+            return self.client.post(
+                f"/api/v1/memory-assets/{self.asset.id}/story-draft/", {"answers": self.answers}, format="json",
+            )
+
+    def test_questions_mention_what_the_photo_shows_and_the_person(self):
+        response = self.client.get(f"/api/v1/memory-assets/{self.asset.id}/story-questions/")
+        self.assertEqual(response.status_code, 200)
+        questions = [item["question"] for item in response.data["questions"]]
+        self.assertEqual(len(questions), 4)
+        self.assertTrue(questions[0].startswith("AI 見到相入面有：茶樓枱面上有蝦餃"))
+        self.assertIn("婆婆", questions[3])
+
+    def test_grounded_model_draft_is_returned_with_answer_tags(self):
+        response = self.draft({
+            "caption": "2016年婆婆同我、阿姨喺旺角金鳳茶樓飲茶。",
+            "tags": ["阿姨", "金鳳茶樓", "2016年", "長洲"],
+        })
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["source"], "ai")
+        self.assertEqual(response.data["caption"], "2016年婆婆同我、阿姨喺旺角金鳳茶樓飲茶。")
+        self.assertEqual(response.data["tags"], "飲茶、阿姨、金鳳茶樓、2016年")
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.caption, "同婆婆飲茶")
+
+    def test_invented_detail_falls_back_to_users_own_words(self):
+        response = self.draft({"caption": "2016年婆婆喺福華街嘅茶樓食燒賣。", "tags": []})
+        self.assertEqual(response.data["source"], "answers")
+        self.assertEqual(response.data["caption"], "同婆婆飲茶；婆婆同我，仲有阿姨；2016年喺旺角嘅金鳳茶樓。")
+
+    def test_draft_cannot_place_the_person_or_guess_gender(self):
+        self.asset.caption = ""
+        self.asset.save()
+        self.answers = [{"question": "嗰日係咩場合？", "answer": "2020年聖誕，全家留喺屋企"}]
+        for caption in ("2020年聖誕，婆婆與家人一同在屋企慶祝。", "2020年聖誕，她全家留喺屋企。"):
+            with self.subTest(caption=caption):
+                self.assertEqual(self.draft({"caption": caption, "tags": []}).data["source"], "answers")
+        self.assertEqual(self.draft({"caption": "2020年聖誕，我哋全家留喺屋企。", "tags": []}).data["source"], "ai")
+
+    def test_model_failure_falls_back_to_users_own_words(self):
+        for reply in (None, {"caption": 42}, ["not", "a", "dict"]):
+            with self.subTest(reply=reply):
+                response = self.draft(reply)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["source"], "answers")
+                self.assertEqual(response.data["tags"], "飲茶")
+
+    def test_draft_needs_an_answer_and_ownership(self):
+        response = self.client.post(
+            f"/api/v1/memory-assets/{self.asset.id}/story-draft/", {"answers": [{"answer": "  "}]}, format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        stranger = get_user_model().objects.create_user(username="story-stranger", password="testing-password")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=stranger).key}")
+        self.assertEqual(self.draft({"caption": "x"}).status_code, 404)

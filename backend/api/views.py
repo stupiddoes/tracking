@@ -1,5 +1,6 @@
 import base64
 from io import BytesIO
+import json
 import mimetypes
 import re
 import httpx
@@ -22,6 +23,7 @@ from rest_framework.response import Response
 from .grounding import check_archive_answer
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
+from . import stories
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
 from .tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
 
@@ -162,6 +164,29 @@ def _index_memory_asset(asset_id, refresh_caption=True):
     )
 
 
+def _generate_story_json(prompt):
+    """Ask the chat model for a JSON story draft; None when the model is unavailable or malformed."""
+    try:
+        with httpx.Client(timeout=120) as client:
+            response = client.post(
+                f"{settings.OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": settings.CHAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "format": "json",
+                    "options": {"temperature": 0.2, "num_predict": 400},
+                },
+            )
+            response.raise_for_status()
+            data = json.loads(response.json()["message"]["content"])
+    except (httpx.HTTPError, KeyError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("caption"), str):
+        data["caption"] = _to_hk_traditional(data["caption"])
+    return data
+
+
 def _queue_memory_index(asset, refresh_caption):
     asset_id = str(asset.id)
 
@@ -211,6 +236,18 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         asset.save(update_fields=("index_status", "index_error"))
         _queue_memory_index(asset, refresh_caption=not asset.generated_caption)
         return Response(self.get_serializer(asset).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=("get",), url_path="story-questions")
+    def story_questions(self, request, pk=None):
+        return Response({"questions": stories.story_questions(self.get_object())})
+
+    @action(detail=True, methods=("post",), url_path="story-draft")
+    def story_draft(self, request, pk=None):
+        asset = self.get_object()
+        answers = stories.clean_answers(request.data.get("answers"))
+        if not answers:
+            return Response({"error": {"code": "NO_ANSWERS", "message": "請最少答一條問題。"}}, status=400)
+        return Response(stories.draft_story(asset, answers, _generate_story_json))
 
     @action(detail=True, methods=("get",), url_path="content")
     def content(self, request, pk=None):

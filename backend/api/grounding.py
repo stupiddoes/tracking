@@ -29,7 +29,8 @@ def _unsupported_details(text, sources, name):
         prefix, core = match.group(1), ""
         while prefix and prefix[-1] not in _GENERIC_PLACE_CHARS:
             core, prefix = prefix[-1] + core, prefix[:-1]
-        if len(core) >= 2 and core not in sources:
+        # Adjacent names merge ("旺角金鳳"); a known trailing name is enough.
+        if len(core) >= 2 and not any(core[i:] in sources for i in range(len(core) - 1)):
             found.append(core + match.group(2))
     found.extend(m.group(1) for m in _SHOP.finditer(text) if m.group(1) not in sources)
     found.extend(m.group(0) for m in _NUMBER.finditer(text) if m.group(0).replace(" ", "") not in sources)

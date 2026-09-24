@@ -45,3 +45,14 @@
 .index-status.failed { background: #f8e4da; color: #7d4434; }
 .index-status small { display: block; margin-top: 3px; opacity: .8; font-size: 10px; }
 .index-status button { flex: none; border: 1px solid currentColor; border-radius: 99px; background: transparent; color: inherit; padding: 5px 11px; cursor: pointer; }
+.story-start { width: 100%; margin-top: 12px; border: 1px dashed #b9c4b3; border-radius: 12px; background: #f2f5ee; color: #3e5c47; padding: 11px; font-weight: 600; cursor: pointer; }
+.story-note { margin: 10px 2px 0; padding: 9px 11px; border-radius: 11px; background: #e9f0e6; color: #4d6453; font-size: 11px; line-height: 1.6; }
+.story-interview { display: grid; gap: 9px; margin-top: 12px; padding: 13px; border-radius: 14px; background: #f2f5ee; }
+.story-interview small { color: #75806f; font-size: 10px; }
+.story-question { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.6; }
+.story-interview textarea { width: 100%; border: 1px solid #d9d5c8; border-radius: 11px; background: #fffdf7; color: var(--ink); padding: 10px; resize: vertical; }
+.story-actions { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.story-actions button, .story-finish { border: 1px solid #d7d3c5; border-radius: 99px; background: #faf8f1; color: var(--ink); padding: 7px 12px; cursor: pointer; }
+.story-actions .primary { border-color: transparent; background: var(--accent); color: white; }
+.story-actions .primary:disabled { opacity: .45; cursor: default; }
+.story-finish { justify-self: start; border: 0; background: transparent; color: #3e5c47; padding: 2px 0; text-decoration: underline; }

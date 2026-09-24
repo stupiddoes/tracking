@@ -63,6 +63,7 @@
 | `backend/api/management/commands/record_retrieval_vectors.py` | 用 Ollama 重新錄製上述向量 |
 | `backend/api/management/commands/reindex_memories.py` | 補做未索引、失敗或 embedding model 不同的圖片索引 |
 | `backend/api/grounding.py` | 回憶整理模式輸出檢查：地點、店名、食物、數字日期、引述說話要喺用戶資料出現過 |
+| `backend/api/stories.py` | 相片故事訪問：固定問題、草稿 prompt、草稿驗證（輸出檢查、主角出現、性別代名詞）及用戶原文後備 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
@@ -124,6 +125,40 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 加入相片故事訪問
+
+**Commit title：** `Add photo story interview that drafts captions for review`
+
+改動：
+
+- 相片詳情頁新增「同 AI 講呢張相嘅故事」，會問 4 條問題：人物、場合、時間地點、故事。第一條會引用 Vision caption，例如「AI 見到相入面有：……」。問題用固定模板，唔 call 模型，所以即時顯示。
+- 答完或者撳「夠啦」之後，`POST /memory-assets/{id}/story-draft/` 會叫 Gemma 3 以 JSON 模式整理描述同標籤，並填入編輯表格。用戶檢查後撳「儲存修改」先寫入，並經原有流程重新建立索引。問答內容本身唔儲存。
+- 以下情況草稿會被棄用，改為用用戶原文串連：
+  - 通唔過回憶整理嘅輸出檢查
+  - 答案冇提過相簿主角，草稿就寫佢喺相入面
+  - 答案冇用「她／他」，草稿就用
+  - 模型冇回應或者輸出格式錯誤
+- 新標籤要喺答案原文出現過先保留，並同原有標籤合併。
+- 輸出檢查順帶修正：相連嘅地名，例如「旺角金鳳茶樓」，只要結尾嘅名喺資料出現過就接受。
+
+真 `gemma3:4b` 測試（3 組答案，每組 2 次）：
+
+- 初版會作「婆婆與家人一同慶祝」（答案冇提婆婆），又會將「我」改成「她」。加 prompt 規則同兩項檢查之後，5 份成功草稿全部保留「我」，冇作人物，並保留「因為疫情」呢類原因。
+- 有 2 次模型冇回應，自動改用用戶原文。
+- 已知限制：「應該係維園」會被寫成肯定嘅「喺維園」，靠用戶保存前檢查。
+
+沒有 schema migration。
+
+涉及檔案：
+
+- `backend/api/stories.py`
+- `backend/api/grounding.py`
+- `backend/api/views.py`
+- `backend/api/tests.py`
+- `frontend/src/App.tsx`
+- `frontend/src/memory.css`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 回憶整理模式加入輸出檢查
 
