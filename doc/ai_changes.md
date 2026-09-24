@@ -12,7 +12,8 @@
 | Vector database | PostgreSQL 17 + pgvector |
 | 圖片理解 | Gemma 3 Vision；上載時建立客觀 `generated_caption` |
 | 圖片 RAG | Vision caption + 用戶 caption + tags 建立向量 |
-| 圖片檢索 | Cosine distance，一般候選 threshold `0.45`，最多 3 個候選 |
+| 圖片檢索 | Cosine distance 減 tag／caption 關鍵字加分；`≤0.45` 全部作候選，否則明顯最佳一張（`≤0.60` 且領先第二名 `0.08`，或明確問相）；短句會合併上一句用戶訊息再比對 |
+| 圖片索引 | 上載後由 Celery 背景產生 Vision caption 及 embedding，失敗自動重試 3 次；相簿顯示 `index_status`，可重試或用 `reindex_memories` 補做 |
 | 模型選圖 | Gemma 3 從候選中輸出隱藏 marker；backend 驗證候選 ID 後才附圖 |
 | Backend 自動附圖 | 模型未選圖時，只以 distance `≤0.35` 的 related／ordinary 回憶 fallback；附圖後冷卻 8 個 assistant 回覆 |
 | 長對話 | 最近 20 條訊息 + 滾動摘要 + pgvector 舊訊息召回 |
@@ -53,7 +54,9 @@
 
 | 檔案 | AI 相關內容 |
 |---|---|
-| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、prompt、圖片候選檢索、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換及錯誤回應 |
+| `backend/api/views.py` | Ollama chat／embed requests、Vision caption、圖片索引流程、prompt、圖片候選檢索及關鍵字加分、模型選圖 marker、長期摘要、舊訊息召回、重複清理、繁體轉換及錯誤回應 |
+| `backend/api/tasks.py` | Celery 圖片索引 task、重試及失敗狀態 |
+| `backend/api/management/commands/reindex_memories.py` | 補做未索引、失敗或 embedding model 不同的圖片索引 |
 | `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
@@ -68,6 +71,7 @@
 | `backend/api/migrations/0004_memoryasset.py` | 建立圖片回憶及 768 維 vector 欄位 |
 | `backend/api/migrations/0005_memoryasset_generated_caption.py` | 加入 Vision 自動描述 |
 | `backend/api/migrations/0006_conversation_summary_message_embedding.py` | 加入 conversation 摘要及 message vectors |
+| `backend/api/migrations/0007_memoryasset_index_status.py` | 加入圖片 `index_status`／`index_error`，舊相按有冇 embedding 標為 ready／failed |
 
 ### Runtime、前端及文件
 
@@ -91,7 +95,10 @@
 | `CHAT_MODEL` | `gemma3:4b` | 對話、Vision caption 及摘要 |
 | `EMBEDDING_MODEL` | `embeddinggemma` | 圖片與訊息向量 |
 | `MEMORY_RETRIEVAL_TOP_K` | `3` | 每次交給模型的圖片候選上限 |
-| `MEMORY_MAX_COSINE_DISTANCE` | `0.45` | 圖片候選最大 cosine distance；越小越嚴格 |
+| `MEMORY_MAX_COSINE_DISTANCE` | `0.45` | 高信心圖片候選的最大分數（distance 減關鍵字加分） |
+| `MEMORY_RELAXED_MAX_DISTANCE` | `0.60` | 冇高信心候選時，最佳一張仍可入選的上限 |
+| `MEMORY_MIN_MARGIN` | `0.08` | 放寬入選時，最佳一張要領先第二名幾多；明確問相時唔使 |
+| `MEMORY_KEYWORD_BOOST` | `0.10` | Tag 命中扣減的分數；caption 詞語重疊每個扣一半，總上限 1.5 倍 |
 | `MEMORY_SPONTANEOUS_MAX_DISTANCE` | `0.35` | 一般對話由 backend 主動附圖的較嚴格 distance 上限 |
 | `MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES` | `8` | 最近幾個 assistant 回覆曾附圖時暫停主動附圖 |
 | `MESSAGE_RETRIEVAL_TOP_K` | `4` | 舊訊息召回上限 |
@@ -111,6 +118,40 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-09-24 — 圖片索引改為背景處理，檢索改用相對排名
+
+**Commit title：** `Index memory photos in background and rank by margin`
+
+改動：
+
+- 以真實 `embeddinggemma` 測試 6 句廣東話 query：6 句正確相片全部排第一，但距離多數介乎 `0.46–0.57`，被固定門檻 `0.45` 過濾，只有 2 句成功。新規則下 5 句成功，唯一失敗係含糊嘅「嗰日好熱好曬」；兩句無關 query 冇誤中。
+- 檢索保留 `≤0.45` 高信心候選；如果冇，最佳一張 `≤0.60` 而且領先第二名 `≥0.08`，或者用戶明確問相，都會作唯一候選。取代舊有「明確問相就放寬到 0.60」嘅特例。
+- Tag 命中（例如「長洲」）扣減 `0.10`，caption／Vision caption 中文雙字詞或英文字重疊每個扣 `0.05`，總上限 `0.15`；常用字（我、你、嘅、相等）唔計。
+- 20 字或以下嘅訊息會另外 embed「上一句用戶訊息 + 今句」，每張相取較近嗰個距離（context 距離加 `0.03`），令「嗰張呢？」之類追問搵到相。
+- 明確問相判斷排除「相信、相處、相似、互相、真相」等詞，避免普通對話被當成搵相而跳過模型。
+- 上載及修改描述後，改由 Celery `index_memory_asset` 背景建立 Vision caption 及 embedding，失敗以 30／60／120 秒 backoff 重試 3 次，最後標記 `failed`。Redis 不可用時即場索引。
+- Vision 失敗但用戶有寫描述時，仍用描述建立索引，並喺 `index_error` 註明。
+- 新增 `POST /api/v1/memory-assets/{id}/reindex/` 及 `python manage.py reindex_memories [--all] [--vision] [--queue]`。
+- 相簿顯示「索引中／未能搜尋」標記、詳細狀態及重試按鈕；有相索引中時每 4 秒自動刷新。
+- Spontaneous fallback 改用加分後嘅分數比較 `MEMORY_SPONTANEOUS_MAX_DISTANCE`。
+
+Migration：`0007_memoryasset_index_status`。部署後建議執行 `docker compose exec backend python manage.py reindex_memories` 補做以前靜默失敗嘅相。
+
+涉及檔案：
+
+- `backend/api/views.py`
+- `backend/api/tasks.py`
+- `backend/api/models.py`
+- `backend/api/migrations/0007_memoryasset_index_status.py`
+- `backend/api/serializers.py`
+- `backend/api/management/commands/reindex_memories.py`
+- `backend/config/settings.py`
+- `backend/api/tests.py`
+- `.env.example`
+- `frontend/src/App.tsx`
+- `frontend/src/memory.css`
+- `doc/ai_changes.md`
 
 ### 2026-09-04 — 加入相關回憶冷卻 fallback
 

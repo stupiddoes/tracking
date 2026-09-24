@@ -5,11 +5,13 @@ import re
 import httpx
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.db import transaction
 from django.http import FileResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from pgvector.django import CosineDistance
 from opencc import OpenCC
+from kombu.exceptions import OperationalError as BrokerUnavailable
 from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -20,6 +22,7 @@ from rest_framework.response import Response
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
+from .tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
 
 _STANDARD_TRADITIONAL = OpenCC("s2t")
 
@@ -105,6 +108,48 @@ def _vision_caption(image_field):
         return _to_hk_traditional(response.json()["message"]["content"].strip())
 
 
+def _memory_index_text(asset):
+    return f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
+
+
+def _index_memory_asset(asset_id, refresh_caption=True):
+    asset = MemoryAsset.objects.get(id=asset_id)
+    index_error = ""
+    if refresh_caption:
+        try:
+            asset.generated_caption = _vision_caption(asset.image)
+        except INDEX_ERRORS:
+            if not asset.caption:
+                raise
+            index_error = "未能自動分析圖片，只用你嘅描述建立索引"
+        if not asset.caption and asset.generated_caption:
+            asset.caption = asset.generated_caption
+            MemoryAsset.objects.filter(id=asset.id, caption="").update(caption=asset.caption)
+    vector = _embedding(_memory_index_text(asset))
+    MemoryAsset.objects.filter(id=asset.id).update(
+        generated_caption=asset.generated_caption,
+        embedding=vector,
+        embedding_model=settings.EMBEDDING_MODEL,
+        index_status=MemoryAsset.IndexStatus.READY,
+        index_error=index_error,
+    )
+
+
+def _queue_memory_index(asset, refresh_caption):
+    asset_id = str(asset.id)
+
+    def enqueue():
+        try:
+            index_memory_asset.delay(asset_id, refresh_caption)
+        except BrokerUnavailable:
+            try:
+                _index_memory_asset(asset_id, refresh_caption)
+            except INDEX_ERRORS as exc:
+                mark_index_failed(asset_id, exc)
+
+    transaction.on_commit(enqueue)
+
+
 class MemoryAssetViewSet(viewsets.ModelViewSet):
     serializer_class = MemoryAssetSerializer
     parser_classes = (JSONParser, MultiPartParser, FormParser)
@@ -116,21 +161,8 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         return queryset.filter(character_id=character_id) if character_id else queryset
 
     def perform_create(self, serializer):
-        asset = serializer.save(owner=self.request.user)
-        try:
-            asset.generated_caption = _vision_caption(asset.image)
-        except (httpx.HTTPError, KeyError, ValueError, OSError):
-            asset.generated_caption = ""
-        if not asset.caption:
-            asset.caption = asset.generated_caption or "未有文字描述的回憶相片"
-        try:
-            asset.embedding = _embedding(
-                f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
-            )
-            asset.embedding_model = settings.EMBEDDING_MODEL
-        except (httpx.HTTPError, KeyError, IndexError, ValueError):
-            pass
-        asset.save(update_fields=("caption", "generated_caption", "embedding", "embedding_model"))
+        asset = serializer.save(owner=self.request.user, index_status=MemoryAsset.IndexStatus.PENDING)
+        _queue_memory_index(asset, refresh_caption=True)
 
     def perform_destroy(self, instance):
         storage, name = instance.image.storage, instance.image.name
@@ -140,14 +172,18 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         asset = serializer.save()
         if {"caption", "tags"}.intersection(serializer.validated_data):
-            try:
-                asset.embedding = _embedding(
-                    f"用戶描述：{asset.caption}\n圖片內容：{asset.generated_caption}\n標籤：{asset.tags}"
-                )
-                asset.embedding_model = settings.EMBEDDING_MODEL
-                asset.save(update_fields=("embedding", "embedding_model"))
-            except (httpx.HTTPError, KeyError, IndexError, ValueError):
-                pass
+            asset.index_status = MemoryAsset.IndexStatus.PENDING
+            asset.save(update_fields=("index_status",))
+            _queue_memory_index(asset, refresh_caption=False)
+
+    @action(detail=True, methods=("post",), url_path="reindex")
+    def reindex(self, request, pk=None):
+        asset = self.get_object()
+        asset.index_status = MemoryAsset.IndexStatus.PENDING
+        asset.index_error = ""
+        asset.save(update_fields=("index_status", "index_error"))
+        _queue_memory_index(asset, refresh_caption=not asset.generated_caption)
+        return Response(self.get_serializer(asset).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=("get",), url_path="content")
     def content(self, request, pk=None):
@@ -271,26 +307,75 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
 
 def _is_explicit_image_request(content):
     return bool(re.search(
-        r"相片|照片|圖片|張相|(?:張|幅|啲|d\s*|bear\s*|嘅)相|有[無冇].{0,30}相|搵.{0,20}相|睇.{0,20}相|\bphoto\b|\bpicture\b",
+        r"相片|照片|圖片|張相|(?:張|幅|啲|d\s*|bear\s*|嘅)相"
+        r"|(?:有[無冇].{0,30}|搵.{0,20}|睇.{0,20})(?<![互真])相(?![信處似關襯])|\bphoto\b|\bpicture\b",
         content, re.IGNORECASE,
     ))
 
 
-def _memory_candidates(character, content, vector=None):
+# Characters too common in chat to count as a keyword hit on their own.
+_KEYWORD_STOP_CHARS = frozenset(
+    "我你佢哋嘅個呢嗰啲咗係唔有冇無張相片照幅去同喺都好啦呀吖嘛咩乜嘢一了的是在和與就又再想要會可以記得睇吓下返嚟過"
+)
+_CONTEXT_QUERY_MAX_CHARS = 20
+_CONTEXT_DISTANCE_PENALTY = 0.03
+
+
+def _keyword_tokens(text):
+    lowered = text.lower()
+    tokens = set(re.findall(r"[a-z]{3,}", lowered))
+    for run in re.findall(r"[\u4e00-\u9fff]+", lowered):
+        tokens.update(
+            run[i:i + 2] for i in range(len(run) - 1)
+            if not _KEYWORD_STOP_CHARS.intersection(run[i:i + 2])
+        )
+    return tokens
+
+
+def _keyword_boost(asset, query):
+    lowered = query.lower()
+    boost = 0.0
+    tags = (tag.strip().lower() for tag in re.split(r"[,，、;；/\s]+", asset.tags))
+    if any(len(tag) >= 2 and tag in lowered for tag in tags):
+        boost += settings.MEMORY_KEYWORD_BOOST
+    shared = _keyword_tokens(query) & _keyword_tokens(f"{asset.caption} {asset.generated_caption} {asset.tags}")
+    boost += min(len(shared), 2) * settings.MEMORY_KEYWORD_BOOST / 2
+    return min(boost, settings.MEMORY_KEYWORD_BOOST * 1.5)
+
+
+def _memory_candidates(character, content, vector=None, context_vector=None):
     assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
     profile = getattr(character.owner, "profile", None)
     if not (character.adult_content_enabled and profile and profile.adult_confirmed):
         assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
     try:
         vector = vector or _embedding(content)
-        explicit_image_request = _is_explicit_image_request(content)
-        max_distance = max(settings.MEMORY_MAX_COSINE_DISTANCE, 0.60) if explicit_image_request else settings.MEMORY_MAX_COSINE_DISTANCE
-        ranked = assets.exclude(embedding__isnull=True).annotate(
-            distance=CosineDistance("embedding", vector)
-        ).filter(distance__lte=max_distance).order_by("distance")
-        return list(ranked[:settings.MEMORY_RETRIEVAL_TOP_K])
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         return []
+    ranked = assets.exclude(embedding__isnull=True).defer("embedding").annotate(
+        distance=CosineDistance("embedding", vector)
+    )
+    if context_vector:
+        ranked = ranked.annotate(context_distance=CosineDistance("embedding", context_vector))
+    scored = []
+    for asset in ranked:
+        distance = asset.distance
+        if context_vector:
+            distance = min(distance, asset.context_distance + _CONTEXT_DISTANCE_PENALTY)
+        asset.score = max(0.0, distance - _keyword_boost(asset, content))
+        scored.append(asset)
+    scored.sort(key=lambda asset: asset.score)
+    confident = [asset for asset in scored if asset.score <= settings.MEMORY_MAX_COSINE_DISTANCE]
+    if confident:
+        return confident[:settings.MEMORY_RETRIEVAL_TOP_K]
+    # Embedding distances run high for short Cantonese queries, so a clear best
+    # match is still useful above the confident threshold.
+    if not scored or scored[0].score > settings.MEMORY_RELAXED_MAX_DISTANCE:
+        return []
+    runner_up = scored[1].score if len(scored) > 1 else 1.0
+    if _is_explicit_image_request(content) or runner_up - scored[0].score >= settings.MEMORY_MIN_MARGIN:
+        return [scored[0]]
+    return []
 
 
 def _select_memory_image(character, content):
@@ -415,7 +500,7 @@ def _spontaneous_memory_candidate(memory_candidates, recent_messages):
         if (
             asset.display_policy == MemoryAsset.DisplayPolicy.RELATED
             and asset.sensitivity == MemoryAsset.Sensitivity.ORDINARY
-            and getattr(asset, "distance", 1.0) <= settings.MEMORY_SPONTANEOUS_MAX_DISTANCE
+            and getattr(asset, "score", 1.0) <= settings.MEMORY_SPONTANEOUS_MAX_DISTANCE
         ):
             return asset
     return None
@@ -457,8 +542,18 @@ def send_message(request, conversation_id):
         user_message.save(update_fields=("embedding", "embedding_model"))
     except (httpx.HTTPError, KeyError, IndexError, ValueError):
         pass
+    context_vector = None
+    if query_vector and len(content) <= _CONTEXT_QUERY_MAX_CHARS:
+        previous = conversation.messages.filter(
+            role=Message.Role.USER, created_at__lt=user_message.created_at,
+        ).order_by("-created_at").first()
+        if previous:
+            try:
+                context_vector = _embedding(f"{previous.content[-300:]}\n{content}")
+            except (httpx.HTTPError, KeyError, IndexError, ValueError):
+                pass
     explicit_image_request = _is_explicit_image_request(content)
-    memory_candidates = _memory_candidates(conversation.character, content, query_vector)
+    memory_candidates = _memory_candidates(conversation.character, content, query_vector, context_vector)
     if explicit_image_request:
         memory_asset = memory_candidates[0] if memory_candidates else None
         answer, _ = _ground_memory_claim("", memory_asset)

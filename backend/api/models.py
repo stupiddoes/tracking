@@ -69,6 +69,11 @@ class MemoryAsset(models.Model):
         RELATED = "related", "相關時可顯示"
         NEVER = "never", "不在對話顯示"
 
+    class IndexStatus(models.TextChoices):
+        PENDING = "pending", "索引中"
+        READY = "ready", "已索引"
+        FAILED = "failed", "索引失敗"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memory_assets")
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="memory_assets")
@@ -81,4 +86,6 @@ class MemoryAsset(models.Model):
     display_policy = models.CharField(max_length=16, choices=DisplayPolicy.choices, default=DisplayPolicy.ON_REQUEST)
     embedding = VectorField(dimensions=768, null=True, blank=True)
     embedding_model = models.CharField(max_length=80, blank=True)
+    index_status = models.CharField(max_length=16, choices=IndexStatus.choices, default=IndexStatus.PENDING)
+    index_error = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

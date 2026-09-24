@@ -38,9 +38,9 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
         model = MemoryAsset
         fields = (
             "id", "character", "image", "caption", "generated_caption", "tags", "captured_at",
-            "sensitivity", "display_policy", "content_url", "created_at",
+            "sensitivity", "display_policy", "index_status", "index_error", "content_url", "created_at",
         )
-        read_only_fields = ("id", "generated_caption", "content_url", "created_at")
+        read_only_fields = ("id", "generated_caption", "index_status", "index_error", "content_url", "created_at")
         extra_kwargs = {
             "image": {"write_only": True},
             "caption": {"required": False, "allow_blank": True},

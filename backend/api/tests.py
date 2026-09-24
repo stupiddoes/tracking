@@ -1,11 +1,14 @@
-from io import BytesIO
+from io import BytesIO, StringIO
 import tempfile
 from unittest.mock import patch
 
+import httpx
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.test.utils import override_settings
+from kombu.exceptions import OperationalError as BrokerUnavailable
 from PIL import Image
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -14,6 +17,7 @@ from django.urls import reverse
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .views import (
     _clean_display_markdown, _clean_repetition, _extract_memory_selection, _ground_memory_claim,
+    _index_memory_asset,
     _is_explicit_image_request, _memory_candidates,
     _adult_mode_enabled, _is_model_meta_refusal, _polish_hk_cantonese, _prompt, _replace_meta_refusal,
     _recalled_messages, _refresh_conversation_summary, _select_memory_image,
@@ -121,6 +125,10 @@ class MemoryAssetTests(TestCase):
         token = Token.objects.create(user=self.user)
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        task_patch = patch("api.views.index_memory_asset")
+        self.index_task = task_patch.start()
+        self.addCleanup(task_patch.stop)
+        self.index_task.delay.side_effect = _index_memory_asset
 
     def tearDown(self):
         self.settings_override.disable()
@@ -139,17 +147,19 @@ class MemoryAssetTests(TestCase):
     @patch("api.views._vision_caption", return_value="相中見到海旁同生日蛋糕")
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_upload_is_embedded_and_private(self, _embedding_mock, _vision_mock):
-        response = self.client.post("/api/v1/memory-assets/", {
-            "character": str(self.character.id),
-            "image": self.image(),
-            "caption": "以前一齊去長洲嘅相",
-            "tags": "長洲, 家人",
-            "display_policy": "related",
-        }, format="multipart")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/v1/memory-assets/", {
+                "character": str(self.character.id),
+                "image": self.image(),
+                "caption": "以前一齊去長洲嘅相",
+                "tags": "長洲, 家人",
+                "display_policy": "related",
+            }, format="multipart")
         self.assertEqual(response.status_code, 201, response.data)
         asset = MemoryAsset.objects.get()
         self.assertEqual(len(asset.embedding), 768)
         self.assertEqual(asset.generated_caption, "相中見到海旁同生日蛋糕")
+        self.assertEqual(asset.index_status, "ready")
 
         stranger = get_user_model().objects.create_user(username="stranger", password="testing-password")
         stranger_token = Token.objects.create(user=stranger)
@@ -163,15 +173,17 @@ class MemoryAssetTests(TestCase):
             owner=self.user, character=self.character, image=self.image(), caption="舊描述",
             generated_caption="兩個人喺海邊", tags="海邊", display_policy="on_request",
         )
-        response = self.client.patch(f"/api/v1/memory-assets/{asset.id}/", {
-            "caption": "長洲海邊嘅回憶", "tags": "長洲, 家人", "captured_at": "2024-06-01",
-            "display_policy": "related", "sensitivity": "ordinary",
-        }, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"/api/v1/memory-assets/{asset.id}/", {
+                "caption": "長洲海邊嘅回憶", "tags": "長洲, 家人", "captured_at": "2024-06-01",
+                "display_policy": "related", "sensitivity": "ordinary",
+            }, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         asset.refresh_from_db()
         self.assertEqual(asset.caption, "長洲海邊嘅回憶")
         self.assertEqual(asset.display_policy, "related")
         self.assertEqual(asset.embedding, [0.2] * 768)
+        self.assertEqual(asset.index_status, "ready")
         self.assertIn("圖片內容：兩個人喺海邊", embedding_mock.call_args.args[0])
 
         response = self.client.delete(f"/api/v1/memory-assets/{asset.id}/")
@@ -211,22 +223,24 @@ class MemoryAssetTests(TestCase):
     @patch("api.views._vision_caption", return_value="一張由 iPhone 拍攝的相片")
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_heic_upload_is_accepted(self, _embedding_mock, _vision_mock):
-        response = self.client.post("/api/v1/memory-assets/", {
-            "character": str(self.character.id),
-            "image": self.heic_image(),
-            "caption": "iPhone 拍攝嘅回憶",
-        }, format="multipart")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/v1/memory-assets/", {
+                "character": str(self.character.id),
+                "image": self.heic_image(),
+                "caption": "iPhone 拍攝嘅回憶",
+            }, format="multipart")
         self.assertEqual(response.status_code, 201, response.data)
         self.assertTrue(MemoryAsset.objects.get().image.name.endswith(".heic"))
 
     @patch("api.views._vision_caption", return_value="兩個人在公園野餐")
     @patch("api.views._embedding", return_value=[0.1] * 768)
     def test_vision_caption_can_supply_missing_user_caption(self, _embedding_mock, _vision_mock):
-        response = self.client.post("/api/v1/memory-assets/", {
-            "character": str(self.character.id),
-            "image": self.image(),
-            "caption": "",
-        }, format="multipart")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/v1/memory-assets/", {
+                "character": str(self.character.id),
+                "image": self.image(),
+                "caption": "",
+            }, format="multipart")
         self.assertEqual(response.status_code, 201, response.data)
         asset = MemoryAsset.objects.get()
         self.assertEqual(asset.caption, "兩個人在公園野餐")
@@ -313,10 +327,10 @@ class MemoryAssetTests(TestCase):
             owner=self.user, character=self.character, image=self.image(), caption="呀bear啱啱瞓醒玩緊",
             display_policy="related", sensitivity="ordinary",
         )
-        asset.distance = 0.22
+        asset.score = 0.22
         self.assertEqual(_spontaneous_memory_candidate([asset], []), asset)
 
-        asset.distance = 0.36
+        asset.score = 0.36
         self.assertIsNone(_spontaneous_memory_candidate([asset], []))
 
     @override_settings(MEMORY_SPONTANEOUS_MAX_DISTANCE=0.35, MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES=8)
@@ -325,7 +339,7 @@ class MemoryAssetTests(TestCase):
             owner=self.user, character=self.character, image=self.image(), caption="長洲海邊",
             display_policy="related", sensitivity="ordinary",
         )
-        asset.distance = 0.20
+        asset.score = 0.20
         conversation = Conversation.objects.create(character=self.character)
         recent = [Message.objects.create(
             conversation=conversation, role="assistant", content="之前分享過",
@@ -341,7 +355,7 @@ class MemoryAssetTests(TestCase):
                 owner=self.user, character=self.character, image=self.image(), caption="私人回憶",
                 display_policy=display_policy, sensitivity=sensitivity,
             )
-            asset.distance = 0.10
+            asset.score = 0.10
             assets.append(asset)
         self.assertIsNone(_spontaneous_memory_candidate(assets, []))
 
@@ -350,16 +364,101 @@ class MemoryAssetTests(TestCase):
             with self.subTest(text=text):
                 self.assertTrue(_is_explicit_image_request(text))
 
-    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RETRIEVAL_TOP_K=3)
-    def test_explicit_bear_photo_request_uses_relaxed_retrieval_threshold(self):
-        asset_vector = [1.0, 0.0] + [0.0] * 766
-        query_vector = [0.5, 0.8660254] + [0.0] * 766
-        asset = MemoryAsset.objects.create(
-            owner=self.user, character=self.character, image=self.image(), caption="粉紅色泰迪熊",
-            display_policy="related", embedding=asset_vector,
+    def test_ordinary_words_containing_photo_character_are_not_photo_requests(self):
+        for text in ("你有冇相信過我？", "我想搵個人好好相處", "你睇我哋係咪好相似", "睇住大家互相"):
+            with self.subTest(text=text):
+                self.assertFalse(_is_explicit_image_request(text))
+
+    query_vector = [0.5, 0.8660254] + [0.0] * 766
+
+    def memory(self, caption, cosine_to_query, **fields):
+        # Place the photo at an exact cosine from query_vector.
+        x = cosine_to_query / 0.5
+        return MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption=caption,
+            display_policy="related", embedding=[x, 0.0, (1 - x * x) ** 0.5] + [0.0] * 765, **fields,
         )
-        self.assertNotIn(asset, _memory_candidates(self.character, "今日傾吓偈", query_vector))
-        self.assertIn(asset, _memory_candidates(self.character, "你唔係有張 bear 相咩", query_vector))
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.60, MEMORY_MIN_MARGIN=0.08)
+    def test_clear_best_match_is_returned_above_confident_threshold(self):
+        bear = self.memory("粉紅色泰迪熊", 0.5)
+        self.memory("公園散步", 0.3)
+        self.assertEqual(_memory_candidates(self.character, "今日傾吓偈", self.query_vector), [bear])
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.60, MEMORY_MIN_MARGIN=0.08)
+    def test_ambiguous_match_needs_explicit_photo_request(self):
+        bear = self.memory("粉紅色泰迪熊", 0.5)
+        self.memory("公園散步", 0.45)
+        self.assertEqual(_memory_candidates(self.character, "今日傾吓偈", self.query_vector), [])
+        self.assertEqual(_memory_candidates(self.character, "你唔係有張 bear 相咩", self.query_vector), [bear])
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.60, MEMORY_KEYWORD_BOOST=0.10)
+    def test_tag_and_caption_keywords_lift_matching_photo(self):
+        self.memory("海邊散步", 0.48)
+        cheung_chau = self.memory("同屋企人去長洲", 0.5, tags="長洲")
+        candidates = _memory_candidates(self.character, "記唔記得去長洲嗰次", self.query_vector)
+        self.assertEqual(candidates[0], cheung_chau)
+        self.assertLessEqual(candidates[0].score, 0.45)
+
+    @override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.60)
+    def test_short_follow_up_can_match_through_previous_message(self):
+        bear = self.memory("粉紅色泰迪熊", 0.2)  # embedding is roughly [0.4, 0, 0.92]
+        far_query = [0.0, 1.0] + [0.0] * 766
+        context_vector = [0.4, 0.0, 0.92] + [0.0] * 765
+        self.assertEqual(_memory_candidates(self.character, "嗰隻呢", far_query), [])
+        self.assertEqual(_memory_candidates(self.character, "嗰隻呢", far_query, context_vector), [bear])
+
+    @patch("api.views._vision_caption", side_effect=httpx.ConnectError("ollama down"))
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_vision_failure_still_indexes_user_caption(self, _embedding_mock, _vision_mock):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/v1/memory-assets/", {
+                "character": str(self.character.id), "image": self.image(), "caption": "阿爸生日",
+            }, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        asset = MemoryAsset.objects.get()
+        self.assertEqual(asset.index_status, "ready")
+        self.assertIn("未能自動分析圖片", asset.index_error)
+        self.assertIsNotNone(asset.embedding)
+
+    @patch("api.views._vision_caption", return_value="一隻狗")
+    @patch("api.views._embedding", side_effect=httpx.ConnectError("ollama down"))
+    def test_failed_index_is_visible_and_can_be_retried(self, embedding_mock, _vision_mock):
+        self.index_task.delay.side_effect = BrokerUnavailable("redis down")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post("/api/v1/memory-assets/", {
+                "character": str(self.character.id), "image": self.image(), "caption": "",
+            }, format="multipart")
+        self.assertEqual(response.data["index_status"], "pending")
+        asset = MemoryAsset.objects.get()
+        self.assertEqual(asset.index_status, "failed")
+        self.assertIn("ConnectError", asset.index_error)
+        self.assertEqual(self.client.get(f"/api/v1/memory-assets/{asset.id}/").data["index_status"], "failed")
+
+        embedding_mock.side_effect = None
+        embedding_mock.return_value = [0.1] * 768
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(f"/api/v1/memory-assets/{asset.id}/reindex/")
+        self.assertEqual(response.status_code, 202)
+        asset.refresh_from_db()
+        self.assertEqual(asset.index_status, "ready")
+        self.assertEqual(asset.caption, "一隻狗")
+
+    @patch("api.views._vision_caption", return_value="海邊")
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    def test_reindex_command_fills_missing_embeddings(self, _embedding_mock, vision_mock):
+        missing = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.image(), caption="長洲",
+            index_status="failed",
+        )
+        current = self.memory("已經索引", 0.5, index_status="ready", embedding_model="embeddinggemma")
+        call_command("reindex_memories", stdout=StringIO())
+        missing.refresh_from_db()
+        self.assertEqual(missing.index_status, "ready")
+        self.assertEqual(missing.generated_caption, "海邊")
+        vision_mock.assert_called_once()
+        current.refresh_from_db()
+        self.assertEqual(current.index_status, "ready")
 
     @patch("api.views._embedding", return_value=[0.1] * 768)
     @patch("api.views.httpx.Client")
