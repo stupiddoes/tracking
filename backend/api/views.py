@@ -1,5 +1,4 @@
 import base64
-from io import BytesIO
 import json
 import mimetypes
 import re
@@ -13,7 +12,6 @@ from django.shortcuts import get_object_or_404
 from pgvector.django import CosineDistance
 from opencc import OpenCC
 from kombu.exceptions import OperationalError as BrokerUnavailable
-from PIL import Image, ImageOps
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -23,7 +21,7 @@ from rest_framework.response import Response
 from .grounding import check_archive_answer
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
-from . import stories
+from . import stories, thumbnails
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
 from .tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
 
@@ -77,17 +75,7 @@ def _embedding(text):
 
 
 def _vision_caption(image_field):
-    image_field.open("rb")
-    try:
-        with Image.open(image_field) as source:
-            image = ImageOps.exif_transpose(source)
-            image.thumbnail((1600, 1600))
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-            encoded = BytesIO()
-            image.save(encoded, format="JPEG", quality=85, optimize=True)
-    finally:
-        image_field.close()
+    encoded = thumbnails.jpeg_bytes(image_field, 1600, 85)
     prompt = (
         "請用繁體中文客觀描述這張由用戶保存的回憶相片，供私人語意搜尋使用。"
         "只描述可見的人物、動物、物件、環境、活動及氣氛；不要辨認身份、猜測敏感屬性、"
@@ -101,7 +89,7 @@ def _vision_caption(image_field):
                 "messages": [{
                     "role": "user",
                     "content": prompt,
-                    "images": [base64.b64encode(encoded.getvalue()).decode("ascii")],
+                    "images": [base64.b64encode(encoded).decode("ascii")],
                 }],
                 "stream": False,
                 "options": {"temperature": 0.2, "num_predict": 180},
@@ -216,11 +204,6 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         asset = serializer.save(owner=self.request.user, index_status=MemoryAsset.IndexStatus.PENDING)
         _queue_memory_index(asset, refresh_caption=True)
 
-    def perform_destroy(self, instance):
-        storage, name = instance.image.storage, instance.image.name
-        instance.delete()
-        storage.delete(name)
-
     def perform_update(self, serializer):
         asset = serializer.save()
         if {"caption", "tags", "captured_at"}.intersection(serializer.validated_data):
@@ -248,6 +231,18 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         if not answers:
             return Response({"error": {"code": "NO_ANSWERS", "message": "請最少答一條問題。"}}, status=400)
         return Response(stories.draft_story(asset, answers, _generate_story_json))
+
+    @action(detail=True, methods=("get",), url_path="thumbnail")
+    def thumbnail(self, request, pk=None):
+        asset = self.get_object()
+        try:
+            name = thumbnails.ensure_thumbnail(asset)
+        except (OSError, ValueError):
+            return self.content(request, pk)
+        response = FileResponse(asset.image.storage.open(name, "rb"), content_type="image/jpeg")
+        # The URL carries the image version, so the browser and offline cache can keep it.
+        response["Cache-Control"] = "private, max-age=31536000, immutable"
+        return response
 
     @action(detail=True, methods=("get",), url_path="content")
     def content(self, request, pk=None):

@@ -107,14 +107,3 @@ class MemoryAssetAdmin(admin.ModelAdmin):
     @admin.action(description="設為：不在對話顯示")
     def hide_from_chat(self, request, queryset):
         queryset.update(display_policy=MemoryAsset.DisplayPolicy.NEVER)
-
-    def delete_model(self, request, obj):
-        storage, name = obj.image.storage, obj.image.name
-        super().delete_model(request, obj)
-        storage.delete(name)
-
-    def delete_queryset(self, request, queryset):
-        files = [(obj.image.storage, obj.image.name) for obj in queryset]
-        super().delete_queryset(request, queryset)
-        for storage, name in files:
-            storage.delete(name)

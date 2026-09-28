@@ -838,3 +838,78 @@ class StoryInterviewTests(TestCase):
         stranger = get_user_model().objects.create_user(username="story-stranger", password="testing-password")
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=stranger).key}")
         self.assertEqual(self.draft({"caption": "x"}).status_code, 404)
+
+
+class ThumbnailTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="thumb-owner", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="婆婆", mode="archive")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+        data = BytesIO()
+        Image.new("RGB", (1600, 1200), "teal").save(data, format="PNG")
+        self.asset = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, caption="海邊",
+            image=SimpleUploadedFile("large.png", data.getvalue(), content_type="image/png"),
+        )
+
+    def thumbnail_url(self):
+        listed = self.client.get(f"/api/v1/memory-assets/?character={self.character.id}").data
+        return listed[0]["thumbnail_url"]
+
+    def test_thumbnail_is_small_jpeg_and_reused(self):
+        from .thumbnails import thumbnail_name
+
+        url = self.thumbnail_url()
+        self.assertIn("?v=", url)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertIn("immutable", response["Cache-Control"])
+        with Image.open(BytesIO(b"".join(response.streaming_content))) as image:
+            self.assertEqual(image.size, (800, 600))
+        self.assertTrue(self.asset.image.storage.exists(thumbnail_name(self.asset)))
+        with patch("api.thumbnails.jpeg_bytes") as regenerate:
+            self.assertEqual(self.client.get(url).status_code, 200)
+            regenerate.assert_not_called()
+
+    def test_replaced_image_gets_a_new_thumbnail_url(self):
+        from .thumbnails import thumbnail_url
+
+        before = thumbnail_url(self.asset)
+        self.asset.image.name = "memories/other.png"
+        self.assertNotEqual(thumbnail_url(self.asset), before)
+
+    def test_thumbnail_is_private_and_falls_back_to_original_for_unreadable_images(self):
+        stranger = APIClient()
+        stranger.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=get_user_model().objects.create_user(username='thumb-stranger', password='testing-password')).key}")
+        self.assertEqual(stranger.get(self.thumbnail_url()).status_code, 404)
+
+        broken = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, caption="壞檔",
+            image=SimpleUploadedFile("broken.png", b"not an image", content_type="image/png"),
+        )
+        response = self.client.get(f"/api/v1/memory-assets/{broken.id}/thumbnail/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+
+    def assert_delete_removes_files(self, delete):
+        from .thumbnails import ensure_thumbnail
+
+        storage = self.asset.image.storage
+        files = (self.asset.image.name, ensure_thumbnail(self.asset))
+        self.assertTrue(all(storage.exists(name) for name in files))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(delete().status_code, 204)
+        self.assertFalse(any(storage.exists(name) for name in files))
+
+    def test_deleting_photo_removes_original_and_thumbnail(self):
+        self.assert_delete_removes_files(lambda: self.client.delete(f"/api/v1/memory-assets/{self.asset.id}/"))
+
+    def test_deleting_album_removes_its_photo_files(self):
+        self.assert_delete_removes_files(lambda: self.client.delete(f"/api/v1/characters/{self.character.id}/"))

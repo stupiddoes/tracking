@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Character, Conversation, MemoryAsset, Message
+from .thumbnails import thumbnail_url
 
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -32,15 +33,16 @@ class ConversationSerializer(serializers.ModelSerializer):
 
 class MemoryAssetSerializer(serializers.ModelSerializer):
     content_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
     character = serializers.PrimaryKeyRelatedField(queryset=Character.objects.none())
 
     class Meta:
         model = MemoryAsset
         fields = (
             "id", "character", "image", "caption", "generated_caption", "tags", "captured_at",
-            "sensitivity", "display_policy", "index_status", "index_error", "content_url", "created_at",
+            "sensitivity", "display_policy", "index_status", "index_error", "content_url", "thumbnail_url", "created_at",
         )
-        read_only_fields = ("id", "generated_caption", "index_status", "index_error", "content_url", "created_at")
+        read_only_fields = ("id", "generated_caption", "index_status", "index_error", "content_url", "thumbnail_url", "created_at")
         extra_kwargs = {
             "image": {"write_only": True},
             "caption": {"required": False, "allow_blank": True},
@@ -71,3 +73,6 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
 
     def get_content_url(self, obj):
         return f"/api/v1/memory-assets/{obj.id}/content/"
+
+    def get_thumbnail_url(self, obj):
+        return thumbnail_url(obj)
