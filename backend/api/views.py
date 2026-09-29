@@ -6,6 +6,7 @@ import httpx
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
+from django.db.models import Q
 from django.http import FileResponse
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
@@ -190,6 +191,10 @@ def _queue_memory_index(asset, refresh_caption):
     transaction.on_commit(enqueue)
 
 
+SEARCH_QUERY_MAX_CHARS = 100
+SEARCH_RESULT_LIMIT = 40
+
+
 class MemoryAssetViewSet(viewsets.ModelViewSet):
     serializer_class = MemoryAssetSerializer
     parser_classes = (JSONParser, MultiPartParser, FormParser)
@@ -219,6 +224,30 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
         asset.save(update_fields=("index_status", "index_error"))
         _queue_memory_index(asset, refresh_caption=not asset.generated_caption)
         return Response(self.get_serializer(asset).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=False, methods=("get",), url_path="search")
+    def search(self, request):
+        """Owner's album search: every photo counts, since display rules only govern chat."""
+        query = str(request.query_params.get("q", "")).strip()[:SEARCH_QUERY_MAX_CHARS]
+        if not query or not request.query_params.get("character"):
+            return Response({"error": {"code": "INVALID_SEARCH", "message": "請輸入想搵嘅人物、地點、年份或者故事。"}}, status=400)
+        assets = self.get_queryset()
+        text_matches = set(assets.filter(
+            Q(caption__icontains=query) | Q(tags__icontains=query) | Q(generated_caption__icontains=query)
+        ).values_list("id", flat=True))
+        try:
+            scored = _score_memories(assets, query, _embedding(_memory_query_text(query)))
+            semantic = True
+        except (httpx.HTTPError, KeyError, IndexError, ValueError):
+            scored, semantic = [], False
+        found = {asset.id: asset for asset in scored if asset.score <= settings.MEMORY_RELAXED_MAX_DISTANCE or asset.id in text_matches}
+        found.update({asset.id: asset for asset in assets.filter(id__in=text_matches - found.keys())})
+        # Literal matches first, then by semantic score.
+        results = sorted(found.values(), key=lambda asset: (asset.id not in text_matches, getattr(asset, "score", 1.0)))
+        return Response({
+            "results": self.get_serializer(results[:SEARCH_RESULT_LIMIT], many=True).data,
+            "semantic": semantic,
+        })
 
     @action(detail=True, methods=("get",), url_path="story-questions")
     def story_questions(self, request, pk=None):
@@ -423,15 +452,8 @@ def _keyword_boost(asset, query):
     return min(boost, settings.MEMORY_KEYWORD_BOOST * 1.5)
 
 
-def _memory_candidates(character, content, vector=None, context_vector=None):
-    assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
-    profile = getattr(character.owner, "profile", None)
-    if not (character.adult_content_enabled and profile and profile.adult_confirmed):
-        assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
-    try:
-        vector = vector or _embedding(_memory_query_text(content))
-    except (httpx.HTTPError, KeyError, IndexError, ValueError):
-        return []
+def _score_memories(assets, content, vector, context_vector=None):
+    """Indexed assets with a .score (cosine distance minus keyword boost), best first."""
     ranked = assets.exclude(embedding__isnull=True).defer("embedding").annotate(
         distance=CosineDistance("embedding", vector)
     )
@@ -445,6 +467,19 @@ def _memory_candidates(character, content, vector=None, context_vector=None):
         asset.score = max(0.0, distance - _keyword_boost(asset, content))
         scored.append(asset)
     scored.sort(key=lambda asset: asset.score)
+    return scored
+
+
+def _memory_candidates(character, content, vector=None, context_vector=None):
+    assets = MemoryAsset.objects.filter(owner=character.owner, character=character).exclude(display_policy=MemoryAsset.DisplayPolicy.NEVER)
+    profile = getattr(character.owner, "profile", None)
+    if not (character.adult_content_enabled and profile and profile.adult_confirmed):
+        assets = assets.exclude(sensitivity=MemoryAsset.Sensitivity.ADULT)
+    try:
+        vector = vector or _embedding(_memory_query_text(content))
+    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        return []
+    scored = _score_memories(assets, content, vector, context_vector)
     confident = [asset for asset in scored if asset.score <= settings.MEMORY_MAX_COSINE_DISTANCE]
     if confident:
         return confident[:settings.MEMORY_RETRIEVAL_TOP_K]

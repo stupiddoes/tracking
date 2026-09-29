@@ -913,3 +913,72 @@ class ThumbnailTests(TestCase):
 
     def test_deleting_album_removes_its_photo_files(self):
         self.assert_delete_removes_files(lambda: self.client.delete(f"/api/v1/characters/{self.character.id}/"))
+
+
+@override_settings(MEMORY_RELAXED_MAX_DISTANCE=0.64, MEMORY_KEYWORD_BOOST=0.10)
+class AlbumSearchTests(TestCase):
+    query_vector = [0.5, 0.8660254] + [0.0] * 766
+
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="search-owner", password="testing-password")
+        Profile.objects.create(user=self.user, adult_confirmed_at="2026-08-21T00:00:00Z")
+        self.character = Character.objects.create(owner=self.user, name="阿晴", mode="fictional", adult_content_enabled=True)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+
+    def photo(self, caption, cosine=None, **fields):
+        # Unit vector whose cosine similarity with query_vector is exactly `cosine`.
+        embedding = None
+        if cosine is not None:
+            embedding = [0.5 * cosine, 0.8660254 * cosine, (1 - cosine * cosine) ** 0.5] + [0.0] * 765
+        return MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=SimpleUploadedFile("a.png", b"x"),
+            caption=caption, embedding=embedding, **fields,
+        )
+
+    def search(self, query, client=None):
+        return (client or self.client).get("/api/v1/memory-assets/search/", {"character": str(self.character.id), "q": query})
+
+    def ids(self, response):
+        return [item["id"] for item in response.data["results"]]
+
+    @patch("api.views._embedding", return_value=query_vector)
+    def test_related_photos_are_found_regardless_of_chat_display_rules(self, _embedding_mock):
+        close = self.photo("海邊散步", 0.6)
+        hidden = self.photo("沙灘日落", 0.5, display_policy="never")
+        adult = self.photo("酒店夜景", 0.45, sensitivity="adult")
+        self.photo("辦公室", 0.2)
+        response = self.search("去海邊嗰次")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["semantic"])
+        self.assertEqual(self.ids(response), [str(close.id), str(hidden.id), str(adult.id)])
+
+    @patch("api.views._embedding", return_value=query_vector)
+    def test_literal_matches_come_first_and_include_unindexed_photos(self, _embedding_mock):
+        semantic = self.photo("海邊散步", 0.7)
+        unindexed = self.photo("長洲海灘", tags="旅行")
+        tagged = self.photo("一班人食飯", 0.1, tags="長洲")
+        response = self.search("長洲")
+        self.assertEqual(self.ids(response)[:2], [str(tagged.id), str(unindexed.id)])
+        self.assertIn(str(semantic.id), self.ids(response))
+
+    @patch("api.views._embedding", side_effect=httpx.ConnectError("ollama down"))
+    def test_text_search_still_works_without_the_model(self, _embedding_mock):
+        match = self.photo("婆婆生日", 0.9)
+        self.photo("公園", 0.9)
+        response = self.search("生日")
+        self.assertFalse(response.data["semantic"])
+        self.assertEqual(self.ids(response), [str(match.id)])
+
+    @patch("api.views._embedding", return_value=query_vector)
+    def test_search_is_private_and_needs_a_query(self, _embedding_mock):
+        self.photo("海邊", 0.9)
+        self.assertEqual(self.search("  ").status_code, 400)
+        stranger = APIClient()
+        stranger.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=get_user_model().objects.create_user(username='search-stranger', password='testing-password')).key}")
+        self.assertEqual(self.ids(self.search("海邊", stranger)), [])
