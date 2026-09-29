@@ -79,3 +79,15 @@
 .album-search button.primary { border-color: transparent; background: var(--accent); color: #fff; min-width: 64px; }
 .album-search button:disabled { opacity: .6; cursor: default; }
 .search-note { margin: -6px 0 0; color: #8a5a44; font-size: 14px; }
+.memory-image .add-story { margin-top: 8px; border: 1px dashed #b9c4b3; border-radius: 99px; background: #f2f5ee; color: #3e5c47; padding: 7px 14px; font: 600 14px 'Noto Sans HK'; cursor: pointer; }
+.add-story-sheet { display: grid; gap: 10px; max-height: 80dvh; overflow-y: auto; }
+.add-story-sheet h2 { margin: 0; }
+.add-story-sheet form { display: grid; gap: 10px; }
+.add-story-photo { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px; border-radius: 14px; background: #f2f0e6; }
+.add-story-photo img, .add-story-photo .album-placeholder { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; display: block; }
+.add-story-photo small { color: #6b756d; font-size: 13px; }
+.add-story-photo p { margin: 2px 0 0; font-size: 15px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.field-label { font-size: 15px; font-weight: 600; color: #3f4f45; }
+.add-story-sheet textarea, .add-story-sheet input { width: 100%; border: 1px solid #d9d5c8; border-radius: 12px; background: #faf8f1; color: var(--ink); padding: 11px 12px; font: 400 16px 'Noto Sans HK'; resize: vertical; }
+.story-hint { margin: -4px 0 0; color: #6b756d; font-size: 14px; }
+.add-story-sheet .story-note { margin: 0; }

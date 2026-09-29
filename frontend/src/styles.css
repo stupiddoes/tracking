@@ -18,3 +18,4 @@
 .tabbar .tab-add{width:60px;height:60px;border-radius:50%;background:var(--accent);color:#fff;font-size:30px;font-weight:400;margin-top:-28px;box-shadow:0 8px 18px -8px #274e3ab3;display:grid;place-items:center}
 .toast{position:absolute;left:16px;right:16px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:9;background:#183d2f;color:#f3f0e4;padding:12px 14px;border-radius:14px;font-size:15px;line-height:1.5;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;box-shadow:0 12px 30px -12px #0d2018}
 .toast button{border:0;background:none;color:inherit;text-decoration:underline;font-size:15px;cursor:pointer;flex:none}
+.toast.over-composer{bottom:calc(160px + env(safe-area-inset-bottom))}
