@@ -982,3 +982,212 @@ class AlbumSearchTests(TestCase):
         stranger = APIClient()
         stranger.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=get_user_model().objects.create_user(username='search-stranger', password='testing-password')).key}")
         self.assertEqual(self.ids(self.search("海邊", stranger)), [])
+
+
+class EnglishLanguageTests(TestCase):
+    sources = "Grandma\nmy mum's mother\nLived in Sham Shui Po. Loved dim sum and mahjong.\nShe used to take me to the park every Sunday"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="english-owner", password="testing-password")
+        self.character = Character.objects.create(
+            owner=self.user, name="Grandma", mode="archive", relationship="my mum's mother",
+            description="Lived in Sham Shui Po. Loved dim sum and mahjong.", language="en",
+        )
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+
+    def test_language_follows_the_message_and_tolerates_cantonese_code_mixing(self):
+        from .language import detect_language
+
+        self.assertEqual(detect_language("Do you remember her favourite food?"), "en")
+        self.assertEqual(detect_language("有冇 teddy bear 嘅相"), "zh-HK")
+        self.assertEqual(detect_language("我好掛住婆婆"), "zh-HK")
+        self.assertEqual(detect_language("OK", default="en"), "en")
+        self.assertEqual(detect_language("OK", default="zh-HK"), "zh-HK")
+
+    def test_english_prompt_asks_for_english_replies(self):
+        prompt = _prompt(self.character, [], language="en")[0]["content"]
+        self.assertTrue(prompt.startswith("你係一個以英文對話嘅回憶整理助手"))
+        self.assertIn("every reply must be in natural, warm, plain English", prompt)
+        self.assertIn("Back then, Grandma…", prompt)
+        self.assertNotIn("所有回答只可使用香港繁體中文", prompt)
+        cantonese = _prompt(self.character, [], language="zh-HK")[0]["content"]
+        self.assertIn("所有回答只可使用香港繁體中文", cantonese)
+
+    @patch("api.views._embedding", return_value=[0.1] * 768)
+    @patch("api.views.httpx.Client")
+    def test_english_photo_request_gets_english_reply_without_chat_model(self, chat_client, _embedding_mock):
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        with override_settings(MEDIA_ROOT=media.name):
+            asset = MemoryAsset.objects.create(
+                owner=self.user, character=self.character, image=SimpleUploadedFile("a.png", b"x"),
+                caption="Dim sum with Grandma", display_policy="related", embedding=[0.1] * 768,
+            )
+            conversation = Conversation.objects.create(character=self.character)
+            response = self.client.post(f"/api/v1/conversations/{conversation.id}/messages", {"content": "Any photos of dim sum?"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        message = response.data["message"]
+        self.assertTrue(message["content"].startswith("Here is a photo you saved"))
+        self.assertEqual(message["attachments"][0]["id"], str(asset.id))
+        self.assertEqual(message["attachments"][0]["source_label"], "Your saved memory")
+        chat_client.assert_not_called()
+
+    def test_english_crisis_message_is_detected_and_answered_in_english(self):
+        from .safety import classify
+
+        decision = classify("I am going to kill myself tonight", "en")
+        self.assertEqual(decision.action, "crisis")
+        self.assertIn("immediate danger", decision.message)
+        self.assertIn("即時危險", classify("我今晚自殺", "zh-HK").message)
+
+    def check(self, answer):
+        from .grounding import check_archive_answer
+
+        return check_archive_answer(answer, self.sources, "Grandma", "en")
+
+    def test_invented_english_details_are_removed(self):
+        for answer, invented in (
+            ("She always went to Tim Ho Wan in Mong Kok. Do you remember going with her?", "Tim Ho Wan"),
+            ("Her favourite was char siu bao; she ordered it every week.", "char siu"),
+            ("She moved to Sham Shui Po in 1998 and never left.", "1998"),
+            ("She told you she was so proud of you that day.", "proud"),
+            ("She used to say “eat more, you are too thin” every time you visited.", "too thin"),
+        ):
+            with self.subTest(invented=invented):
+                checked, action = self.check(answer)
+                self.assertIn(action, ("trimmed", "replaced"))
+                self.assertNotIn(invented, checked)
+
+    def test_supported_english_facts_and_questions_are_kept(self):
+        for answer in (
+            "You mentioned Grandma loved dim sum, but I don't know her favourite dish. Do you remember?",
+            "Was it har gow or siu mai that she liked?",
+            "She lived in Sham Shui Po, didn't she?",
+            "I'm not Grandma. I'm an AI helper for your family memories.",
+            "Those Sunday walks in the park sound special. What did you do there?",
+            "It sounds like mahjong was a big part of her life.",
+        ):
+            with self.subTest(answer=answer[:20]):
+                self.assertEqual(self.check(answer), (answer, ""))
+
+    def test_real_gemma_english_replies_are_left_alone(self):
+        # Recorded from gemma3:4b with the English archive prompt; none of them invents a detail.
+        for answer in (
+            "You mentioned Grandma loved dim sum and mahjong – that’s wonderful! Do you remember which tea house she often visited when she played mahjong? Was it a particular place in Sham Shui Po, or perhaps one where her friends also went?",
+            "You mentioned Grandma loved dim sum – that’s lovely! Do you remember what kind of dim sum she particularly enjoyed? Was there a specific type, like har gow or siu mai, that she always ordered?",
+            "That sounds lovely! You spent Sundays at the park with your Grandma. Do you remember what kind of things you’d do there? Was it a particular playground or area that she liked?",
+            "No, I’m not your grandma. I'm here to help you remember her! You mentioned she lived in Sham Shui Po and loved dim sum and mahjong – that’s a wonderful starting point. Do you want to talk about when you first spent time with her there?",
+            "That’s completely understandable. It sounds like you have a very special connection with your grandma. You mentioned she lived in Sham Shui Po and loved dim sum and mahjong – was there anywhere specific you used to go with her?",
+        ):
+            with self.subTest(answer=answer[:30]):
+                self.assertEqual(self.check(answer), (answer, ""))
+
+    def test_tag_question_after_an_invented_claim_is_still_caught(self):
+        checked, action = self.check("She loved Tim Ho Wan, didn't she?")
+        self.assertEqual(action, "replaced")
+        self.assertNotIn("Tim Ho Wan", checked)
+
+    def test_english_story_questions_and_draft_keep_the_users_language(self):
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        from .stories import draft_story, story_questions
+
+        with override_settings(MEDIA_ROOT=media.name):
+            asset = MemoryAsset.objects.create(
+                owner=self.user, character=self.character, image=SimpleUploadedFile("a.png", b"x"), caption="",
+                generated_caption="A table with dim sum and a pot of tea; an older woman is smiling.",
+            )
+        questions = story_questions(asset)
+        self.assertTrue(questions[0]["question"].startswith("The AI sees: A table with dim sum"))
+        answers = [{"question": "Who is in this photo?", "answer": "Grandma and I at Kam Fung Tea House in 2010"}]
+        prompts = []
+
+        def generate(prompt):
+            prompts.append(prompt)
+            return {"caption": "Grandma and I had dim sum at Kam Fung Tea House in 2010.", "tags": ["Kam Fung Tea House", "2010", "Paris"]}
+
+        draft = draft_story(asset, answers, generate)
+        self.assertIn("Write in English", prompts[0])
+        self.assertEqual(draft["source"], "ai")
+        self.assertEqual(draft["tags"], "Kam Fung Tea House, 2010")
+
+        guessed = draft_story(asset, answers, lambda _p: {"caption": "She had dim sum at Kam Fung Tea House in 2010.", "tags": []})
+        self.assertEqual(guessed["source"], "answers")
+        self.assertEqual(guessed["caption"], "Grandma and I at Kam Fung Tea House in 2010.")
+
+
+@override_settings(MEMORY_MAX_COSINE_DISTANCE=0.45, MEMORY_RELAXED_MAX_DISTANCE=0.64, MEMORY_MIN_MARGIN=0.08,
+                   MEMORY_WIDE_MAX_DISTANCE=0.72, MEMORY_WIDE_MIN_MARGIN=0.12)
+class ClearBestMatchTests(TestCase):
+    def match(self, *scores):
+        from types import SimpleNamespace
+
+        from .views import _clear_best
+
+        return _clear_best([SimpleNamespace(score=score) for score in scores])
+
+    def test_wide_lead_accepts_a_higher_distance(self):
+        self.assertIsNotNone(self.match(0.69, 0.82))
+        self.assertIsNone(self.match(0.69, 0.78))
+        self.assertIsNone(self.match(0.75, 0.95))
+        self.assertIsNotNone(self.match(0.60, 0.69))
+
+
+class PrintQualityTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="print-owner", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="婆婆", mode="archive")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+        task_patch = patch("api.views.index_memory_asset")
+        task_patch.start()
+        self.addCleanup(task_patch.stop)
+
+    def png(self, width, height, exif_orientation=None):
+        data = BytesIO()
+        image = Image.new("RGB", (width, height), "white")
+        if exif_orientation:
+            exif = image.getexif()
+            exif[0x0112] = exif_orientation
+            image.save(data, format="JPEG", exif=exif)
+            return SimpleUploadedFile("photo.jpg", data.getvalue(), content_type="image/jpeg")
+        image.save(data, format="PNG")
+        return SimpleUploadedFile("photo.png", data.getvalue(), content_type="image/png")
+
+    def upload(self, image):
+        response = self.client.post("/api/v1/memory-assets/", {"character": str(self.character.id), "image": image}, format="multipart")
+        self.assertEqual(response.status_code, 201, response.data)
+        return MemoryAsset.objects.get(id=response.data["id"])
+
+    def test_ratings_follow_print_resolution(self):
+        from .printing import print_quality
+
+        self.assertEqual(print_quality(4032, 3024), {"rating": "good", "dpi": 800})
+        self.assertEqual(print_quality(1000, 750)["rating"], "acceptable")
+        self.assertEqual(print_quality(640, 480)["rating"], "low")
+        self.assertIsNone(print_quality(None, None))
+
+    def test_upload_records_upright_size_and_reports_quality(self):
+        asset = self.upload(self.png(640, 480))
+        self.assertEqual((asset.width, asset.height), (640, 480))
+        listed = self.client.get(f"/api/v1/memory-assets/?character={self.character.id}").data[0]
+        self.assertEqual(listed["print_quality"]["rating"], "low")
+
+        rotated = self.upload(self.png(1600, 1200, exif_orientation=6))
+        self.assertEqual((rotated.width, rotated.height), (1200, 1600))
+
+    def test_reindex_command_fills_sizes_of_older_photos(self):
+        old = MemoryAsset.objects.create(
+            owner=self.user, character=self.character, image=self.png(2000, 1500), caption="舊相",
+            index_status="ready", embedding=[0.1] * 768, embedding_model="embeddinggemma+search-prompt-v1",
+        )
+        self.assertIsNone(old.width)
+        call_command("reindex_memories", stdout=StringIO())
+        old.refresh_from_db()
+        self.assertEqual((old.width, old.height), (2000, 1500))

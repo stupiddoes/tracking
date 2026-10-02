@@ -48,6 +48,10 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", ",".join(CORS_ALLOWED_ORIGINS)).split(",")
+# nginx passes on the scheme Cloudflare saw; the backend is only reachable through nginx.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Turn on once the site is served over HTTPS, so admin cookies are never sent over plain HTTP.
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = os.getenv("SECURE_COOKIES") == "1"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.TokenAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -59,6 +63,8 @@ MEMORY_RETRIEVAL_TOP_K = int(os.getenv("MEMORY_RETRIEVAL_TOP_K", "3"))
 MEMORY_MAX_COSINE_DISTANCE = float(os.getenv("MEMORY_MAX_COSINE_DISTANCE", "0.45"))
 MEMORY_RELAXED_MAX_DISTANCE = float(os.getenv("MEMORY_RELAXED_MAX_DISTANCE", "0.64"))
 MEMORY_MIN_MARGIN = float(os.getenv("MEMORY_MIN_MARGIN", "0.08"))
+MEMORY_WIDE_MAX_DISTANCE = float(os.getenv("MEMORY_WIDE_MAX_DISTANCE", "0.72"))
+MEMORY_WIDE_MIN_MARGIN = float(os.getenv("MEMORY_WIDE_MIN_MARGIN", "0.12"))
 MEMORY_KEYWORD_BOOST = float(os.getenv("MEMORY_KEYWORD_BOOST", "0.10"))
 MEMORY_SPONTANEOUS_MAX_DISTANCE = float(os.getenv("MEMORY_SPONTANEOUS_MAX_DISTANCE", "0.35"))
 MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES = int(os.getenv("MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES", "8"))

@@ -20,6 +20,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from .grounding import check_archive_answer
+from .language import EN, ZH, detect_language, message
 from .models import Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
 from . import stories, thumbnails
@@ -75,13 +76,24 @@ def _embedding(text):
         return vector
 
 
-def _vision_caption(image_field):
-    encoded = thumbnails.jpeg_bytes(image_field, 1600, 85)
-    prompt = (
+_VISION_PROMPTS = {
+    ZH: (
         "請用繁體中文客觀描述這張由用戶保存的回憶相片，供私人語意搜尋使用。"
         "只描述可見的人物、動物、物件、環境、活動及氣氛；不要辨認身份、猜測敏感屬性、"
         "虛構日期地點或聲稱你親身記得。直接輸出一段不超過120字的描述。"
-    )
+    ),
+    EN: (
+        "Describe this photo, which the user saved as a memory, objectively in English for private search. "
+        "Only describe visible people, animals, objects, setting, activity and mood; do not identify anyone, "
+        "guess sensitive attributes, invent dates or places, or claim to remember it. "
+        "Reply with one paragraph of at most 60 words."
+    ),
+}
+
+
+def _vision_caption(image_field, language=ZH):
+    encoded = thumbnails.jpeg_bytes(image_field, 1600, 85)
+    prompt = _VISION_PROMPTS[EN if language == EN else ZH]
     with httpx.Client(timeout=120) as client:
         response = client.post(
             f"{settings.OLLAMA_BASE_URL}/api/chat",
@@ -97,7 +109,8 @@ def _vision_caption(image_field):
             },
         )
         response.raise_for_status()
-        return _to_hk_traditional(response.json()["message"]["content"].strip())
+        caption = response.json()["message"]["content"].strip()
+        return caption if language == EN else _to_hk_traditional(caption)
 
 
 # EmbeddingGemma retrieval prompts; photos and queries must use the same pair.
@@ -130,12 +143,23 @@ def _memory_index_text(asset):
     )
 
 
+def _record_image_size(asset):
+    """Store the photo's pixel size; unreadable files simply stay unknown."""
+    try:
+        asset.width, asset.height = thumbnails.image_size(asset.image)
+    except (OSError, ValueError):
+        return
+    MemoryAsset.objects.filter(id=asset.id).update(width=asset.width, height=asset.height)
+
+
 def _index_memory_asset(asset_id, refresh_caption=True):
-    asset = MemoryAsset.objects.get(id=asset_id)
+    asset = MemoryAsset.objects.select_related("character").get(id=asset_id)
+    if not asset.width:
+        _record_image_size(asset)
     index_error = ""
     if refresh_caption:
         try:
-            asset.generated_caption = _vision_caption(asset.image)
+            asset.generated_caption = _vision_caption(asset.image, asset.character.language)
         except INDEX_ERRORS:
             if not asset.caption:
                 raise
@@ -207,6 +231,7 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         asset = serializer.save(owner=self.request.user, index_status=MemoryAsset.IndexStatus.PENDING)
+        _record_image_size(asset)
         _queue_memory_index(asset, refresh_caption=True)
 
     def perform_update(self, serializer):
@@ -240,7 +265,8 @@ class MemoryAssetViewSet(viewsets.ModelViewSet):
             semantic = True
         except (httpx.HTTPError, KeyError, IndexError, ValueError):
             scored, semantic = [], False
-        found = {asset.id: asset for asset in scored if asset.score <= settings.MEMORY_RELAXED_MAX_DISTANCE or asset.id in text_matches}
+        best = _clear_best(scored)
+        found = {asset.id: asset for asset in scored if asset.score <= settings.MEMORY_RELAXED_MAX_DISTANCE or asset.id in text_matches or asset is best}
         found.update({asset.id: asset for asset in assets.filter(id__in=text_matches - found.keys())})
         # Literal matches first, then by semantic score.
         results = sorted(found.values(), key=lambda asset: (asset.id not in text_matches, getattr(asset, "score", 1.0)))
@@ -336,23 +362,34 @@ def conversations(request, character_id):
     convo = Conversation.objects.create(character=character)
     return Response(ConversationSerializer(convo).data, status=status.HTTP_201_CREATED)
 
-def _prompt(character, history, memory_candidates=(), conversation_summary="", recalled_messages=()):
+_ENGLISH_STYLE = (
+    "These instructions are written in Chinese, but every reply must be in natural, warm, plain English. "
+    "Keep replies short, usually 2 to 5 sentences, unless the user asks for detail. "
+    "Do not repeat the same word, sentence or action. "
+    "If you need to decline or set a boundary, do it briefly and kindly; never output warnings, policy notes "
+    "or robotic narration, and never claim the conversation has been ended."
+)
+
+
+def _prompt(character, history, memory_candidates=(), conversation_summary="", recalled_messages=(), language=ZH):
+    english = language == EN
+    speech = "以英文" if english else "以廣東話繁體中文"
     mode = Character.Mode(character.mode).label
-    identity = f"你係一個以廣東話繁體中文對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。"
+    identity = f"你係一個{speech}對話嘅 AI 角色。模式：{mode}。角色名：{character.name}。背景：{character.description}。"
     if character.mode == Character.Mode.MEMORIAL:
         grounding = "不可聲稱自己係死者本人或真正復活；沒有來源支持時坦白講不知道。"
     elif character.mode == Character.Mode.ARCHIVE:
         subject = f"{character.name}（{character.relationship}）" if character.relationship else character.name
         identity = (
-            f"你係一個以廣東話繁體中文對話嘅回憶整理助手。用戶正在整理及重溫關於「{subject}」嘅回憶。"
+            f"你係一個{speech}對話嘅回憶整理助手。用戶正在整理及重溫關於「{subject}」嘅回憶。"
             f"用戶提供嘅背景：{character.description or '未提供'}。"
         )
         grounding = (
             f"你唔係{character.name}本人，唔可以用第一身扮演佢、代佢講嘢或者聲稱記得任何事；"
-            f"要用第三身講{character.name}，例如『{character.name}嗰陣……』。"
+            f"要用第三身講{character.name}，例如『{f'Back then, {character.name}…' if english else f'{character.name}嗰陣……'}』。"
             f"關於{character.name}嘅人物、事件同細節只可以嚟自用戶講過或者保存咗嘅資料；冇資料就坦白講唔知，唔好估。"
             "尤其唔可以自己作食物、地點、說話、習慣或者日期；用戶問『記唔記得』時，只可以複述資料入面有嘅嘢，"
-            f"其餘要反問用戶，例如『你之前講過{character.name}鍾意飲茶，但佢最鍾意食咩我唔知，你記得嗎？』；"
+            f"其餘要反問用戶，例如『{f'You mentioned {character.name} loved dim sum, but I do not know the favourite dish. Do you remember?' if english else f'你之前講過{character.name}鍾意飲茶，但佢最鍾意食咩我唔知，你記得嗎？'}』；"
             "只喺用戶問細節時先用呢類講法，而且要換成用戶實際問緊嘅內容。"
             "你嘅角色係陪用戶一齊回顧同整理：適當時候可以問一條簡短問題，幫用戶講多啲人物、場合或細節，"
             "但唔好每次都問，亦唔好一次問幾條。用戶問你係咪 AI 時可以直接承認。"
@@ -383,7 +420,7 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
             + "\n".join(candidate_lines)
             + "\n只有在相片能實質幫助當前對話時才附圖；展示規則 related 可在自然相關時使用，"
             "on_request 只可在用戶確實要求查看、發送或展示相片時使用。不要為了增加氣氛而亂附圖。"
-            "如決定附圖，先在回答中自然說明這是用戶保存的回憶，例如『你之前保存咗呢張相，睇吓。』，"
+            f"如決定附圖，先在回答中自然說明這是用戶保存的回憶，例如『{'You saved this photo earlier. Have a look.' if english else '你之前保存咗呢張相，睇吓。'}』，"
             "然後只在回答最後另起一行輸出 [SHOW_MEMORY:候選ID]。如不附圖，不可輸出標記。"
             "回憶連結模式尤其不可說『我記得當日』、不可聲稱親歷相片事件或把自己當成死者本人。"
         )
@@ -398,7 +435,7 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
     if recalled_messages:
         excerpts = "\n".join(f"{message.get_role_display()}：{message.content[:500]}" for message in recalled_messages)
         long_term_policy += f"語意檢索到的較早對話片段：\n{excerpts}\n"
-    response_style = (
+    response_style = _ENGLISH_STYLE if english else (
         "所有回答只可使用香港繁體中文，禁止輸出簡體中文字；即使用戶輸入簡體字亦要以繁體字回答。"
         "使用自然、當代香港廣東話口語，避免台灣或內地書面語；除非係香港人日常慣用講法，否則不要中英夾雜。"
         "禁止亂造粵語動詞、錯別字、近音字或語意不通句子；不確定口語寫法時，改用常見簡單講法。"
@@ -416,7 +453,7 @@ def _prompt(character, history, memory_candidates=(), conversation_summary="", r
 def _is_explicit_image_request(content):
     return bool(re.search(
         r"相片|照片|圖片|張相|(?:張|幅|啲|d\s*|bear\s*|嘅)相"
-        r"|(?:有[無冇].{0,30}|搵.{0,20}|睇.{0,20})(?<![互真])相(?![信處似關襯])|\bphoto\b|\bpicture\b",
+        r"|(?:有[無冇].{0,30}|搵.{0,20}|睇.{0,20})(?<![互真])相(?![信處似關襯])|\bphotos?\b|\bpictures?\b|\bpics?\b",
         content, re.IGNORECASE,
     ))
 
@@ -483,14 +520,25 @@ def _memory_candidates(character, content, vector=None, context_vector=None):
     confident = [asset for asset in scored if asset.score <= settings.MEMORY_MAX_COSINE_DISTANCE]
     if confident:
         return confident[:settings.MEMORY_RETRIEVAL_TOP_K]
-    # Embedding distances run high for short Cantonese queries, so a clear best
-    # match is still useful above the confident threshold.
-    if not scored or scored[0].score > settings.MEMORY_RELAXED_MAX_DISTANCE:
-        return []
-    runner_up = scored[1].score if len(scored) > 1 else 1.0
-    if _is_explicit_image_request(content) or runner_up - scored[0].score >= settings.MEMORY_MIN_MARGIN:
-        return [scored[0]]
-    return []
+    best = _clear_best(scored, _is_explicit_image_request(content))
+    return [best] if best else []
+
+
+def _clear_best(scored, explicit=False):
+    """The top match when it stands out, even above the confident threshold.
+
+    Short Cantonese queries and English queries against Chinese captions both run at
+    higher distances, but a correct match still leads the rest by a wide margin.
+    """
+    if not scored:
+        return None
+    best = scored[0]
+    lead = (scored[1].score if len(scored) > 1 else 1.0) - best.score
+    if best.score <= settings.MEMORY_RELAXED_MAX_DISTANCE and (explicit or lead >= settings.MEMORY_MIN_MARGIN):
+        return best
+    if best.score <= settings.MEMORY_WIDE_MAX_DISTANCE and lead >= settings.MEMORY_WIDE_MIN_MARGIN:
+        return best
+    return None
 
 
 def _select_memory_image(character, content):
@@ -574,11 +622,11 @@ def _is_model_meta_refusal(answer):
     return any(phrase in normalized for phrase in meta_phrases)
 
 
-def _replace_meta_refusal(answer, adult_mode=False):
+def _replace_meta_refusal(answer, adult_mode=False, language=ZH):
     if _is_model_meta_refusal(answer):
-        if adult_mode:
+        if adult_mode and language != EN:
             return "好呀，過嚟啦……今晚就陪你放肆一次。話我知，你想我點樣陪你？", True
-        return "呢個方向我唔會繼續。不如轉個大家都舒服嘅方式，我仍然喺度陪你傾。", True
+        return message("meta_refusal", language), True
     return answer, False
 
 
@@ -606,16 +654,27 @@ def _clean_display_markdown(text):
     return cleaned.strip()
 
 
-def _ground_memory_claim(answer, memory_asset):
+_FABRICATED_DISPLAY_PATTERNS = (
+    "搵到一張", "搵到呢張", "呢張係", "見到未", "將電話貼", "攞住手機", "攞出一張相",
+    "拎出一張相", "睇下呢張", "睇吓呢張", "傳張相", "同你分享張相",
+    "found a photo", "found the photo", "here's the photo", "here is the photo", "here's a photo",
+    "look at this photo", "i'm showing you", "sending you a photo", "i'll send you",
+)
+
+
+def _ground_memory_claim(answer, memory_asset, language=ZH):
     if memory_asset:
-        return f"你保存嘅呢張相，描述係「{memory_asset.caption}」。你睇吓係咪你想搵嗰張？", True
-    fabricated_display_patterns = (
-        "搵到一張", "搵到呢張", "呢張係", "見到未", "將電話貼", "攞住手機", "攞出一張相",
-        "拎出一張相", "睇下呢張", "睇吓呢張", "傳張相", "同你分享張相",
-    )
-    if any(pattern in answer for pattern in fabricated_display_patterns):
-        return "我暫時未喺你保存嘅相簿搵到嗰張相。你可以補充人物、顏色、地點或者日期，我再幫你搵。", True
+        return message("photo_found", language, caption=memory_asset.caption), True
+    if any(pattern in answer.lower() for pattern in _FABRICATED_DISPLAY_PATTERNS):
+        return message("photo_not_found", language), True
     return answer, False
+
+
+def _attachment(memory_asset, language):
+    return {
+        "id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/",
+        "caption": memory_asset.caption, "source_label": message("source_label", language),
+    }
 
 
 def _spontaneous_memory_candidate(memory_candidates, recent_messages):
@@ -657,7 +716,8 @@ def send_message(request, conversation_id):
     content = str(request.data.get("content", "")).strip()
     if not content or len(content) > 8000:
         return Response({"error": {"code": "INVALID_MESSAGE", "message": "訊息不可為空白或超過 8,000 字。"}}, status=400)
-    decision = classify(content)
+    language = detect_language(content, conversation.character.language)
+    decision = classify(content, language)
     user_message = Message.objects.create(conversation=conversation, role="user", content=content)
     if decision.action != "allow":
         msg = Message.objects.create(conversation=conversation, role="assistant", content=decision.message, metadata={"guardrail": decision.action})
@@ -686,12 +746,11 @@ def send_message(request, conversation_id):
     memory_candidates = _memory_candidates(conversation.character, content, memory_vector, context_vector)
     if explicit_image_request:
         memory_asset = memory_candidates[0] if memory_candidates else None
-        answer, _ = _ground_memory_claim("", memory_asset)
-        if not memory_asset:
-            answer = "我暫時未喺你保存嘅相簿搵到嗰張相。你可以補充人物、顏色、地點或者日期，我再幫你搵。"
-        attachments = []
         if memory_asset:
-            attachments.append({"id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
+            answer = message("photo_found", language, caption=memory_asset.caption)
+        else:
+            answer = message("photo_not_found", language)
+        attachments = [_attachment(memory_asset, language)] if memory_asset else []
         metadata = {"attachments": attachments} if attachments else {}
         msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=metadata)
         try:
@@ -711,7 +770,7 @@ def send_message(request, conversation_id):
     recalled_messages = _recalled_messages(conversation, query_vector, recent_ids)
     try:
         with httpx.Client(timeout=120) as client:
-            messages = _prompt(conversation.character, history, memory_candidates, conversation.summary, recalled_messages)
+            messages = _prompt(conversation.character, history, memory_candidates, conversation.summary, recalled_messages, language)
             request_body = {"model": settings.CHAT_MODEL, "messages": messages, "stream": False, "options": {"temperature": 0.65, "top_p": 0.9, "top_k": 40, "repeat_penalty": 1.18, "repeat_last_n": 256, "num_predict": 320}}
             response = client.post(f"{settings.OLLAMA_BASE_URL}/api/chat", json=request_body)
             response.raise_for_status()
@@ -730,38 +789,36 @@ def send_message(request, conversation_id):
                 answer = response.json()["message"]["content"]
     except (httpx.HTTPError, KeyError, ValueError):
         return Response({"error": {"code": "MODEL_UNAVAILABLE", "message": "回覆時間過長，請再試一次。", "retryable": True}}, status=503)
-    answer = _to_hk_traditional(_clean_repetition(answer))
+    answer = _clean_repetition(answer)
+    if language != EN:
+        answer = _to_hk_traditional(answer)
     answer, memory_asset = _extract_memory_selection(answer, memory_candidates)
     if memory_asset:
-        answer, _ = _ground_memory_claim(answer, memory_asset)
+        answer, _ = _ground_memory_claim(answer, memory_asset, language)
     else:
         memory_asset = _spontaneous_memory_candidate(memory_candidates, recent)
         if memory_asset:
-            answer = (
-                f"{answer.rstrip()}\n\n講起呢樣，我喺你保存嘅回憶入面搵到一張相關相片："
-                f"「{memory_asset.caption}」。你睇吓。"
-            )
+            answer = f"{answer.rstrip()}\n\n{message('photo_related', language, caption=memory_asset.caption)}"
         else:
-            answer, _ = _ground_memory_claim(answer, None)
+            answer, _ = _ground_memory_claim(answer, None, language)
     meta_refusal_replaced = False
     # The archive assistant is openly an AI, so saying so is not a refusal.
     if conversation.character.mode != Character.Mode.ARCHIVE:
         answer, meta_refusal_replaced = _replace_meta_refusal(
-            answer, adult_mode=_adult_mode_enabled(conversation.character)
+            answer, adult_mode=_adult_mode_enabled(conversation.character), language=language,
         )
     if meta_refusal_replaced:
         memory_asset = None
     answer = _clean_display_markdown(answer)
-    answer = _polish_hk_cantonese(answer)
+    if language != EN:
+        answer = _polish_hk_cantonese(answer)
     message_metadata = {}
     if conversation.character.mode == Character.Mode.ARCHIVE:
         sources = _archive_sources(conversation, history, memory_candidates, recalled_messages)
-        answer, grounding_action = check_archive_answer(answer, sources, conversation.character.name)
+        answer, grounding_action = check_archive_answer(answer, sources, conversation.character.name, language)
         if grounding_action:
             message_metadata["grounding_check"] = grounding_action
-    attachments = []
-    if memory_asset:
-        attachments.append({"id": str(memory_asset.id), "type": "image", "url": f"/api/v1/memory-assets/{memory_asset.id}/content/", "caption": memory_asset.caption, "source_label": "你保存嘅回憶"})
+    attachments = [_attachment(memory_asset, language)] if memory_asset else []
     if attachments:
         message_metadata["attachments"] = attachments
     msg = Message.objects.create(conversation=conversation, role="assistant", content=answer, metadata=message_metadata)

@@ -27,6 +27,18 @@
     {"text": "今日返工好攰", "expect": null},
     {"text": "我好想你", "expect": null},
     {"text": "食咗飯未", "expect": null},
-    {"text": "有冇雪山嘅相", "expect": null}
+    {"text": "有冇雪山嘅相", "expect": null},
+    {"text": "Do you remember that teddy bear?", "expect": "bear"},
+    {"text": "I want to see the beach trip again", "expect": "beach"},
+    {"text": "Dad's 60th birthday", "expect": "cake"},
+    {"text": "Any photos of our dog?", "expect": "dog"},
+    {"text": "I miss having dim sum with grandma", "expect": "dimsum"},
+    {"text": "the trip in summer 2019", "expect": "beach"},
+    {"text": "Christmas 2020 photos", "expect": "xmas"},
+    {"text": "you used to exercise in the park every morning", "expect": "taichi"},
+    {"text": "my graduation day", "expect": "grad"},
+    {"text": "I'm so tired after work", "expect": null},
+    {"text": "I miss you", "expect": null},
+    {"text": "have you eaten yet", "expect": null}
   ]
 }

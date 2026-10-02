@@ -91,3 +91,7 @@
 .add-story-sheet textarea, .add-story-sheet input { width: 100%; border: 1px solid #d9d5c8; border-radius: 12px; background: #faf8f1; color: var(--ink); padding: 11px 12px; font: 400 16px 'Noto Sans HK'; resize: vertical; }
 .story-hint { margin: -4px 0 0; color: #6b756d; font-size: 14px; }
 .add-story-sheet .story-note { margin: 0; }
+.print-quality { padding: 10px 12px; border-radius: 11px; background: #e9f0e6; color: #3f5a47; font-size: 14px; line-height: 1.6; display: grid; gap: 2px; }
+.print-quality b { font-size: 13px; }
+.print-quality.acceptable { background: #f3efe1; color: #5e5534; }
+.print-quality.low { background: #f8e4da; color: #7d4434; }

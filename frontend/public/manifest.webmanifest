@@ -1,0 +1,16 @@
+{
+  "name": "仍在 · 家族相簿",
+  "short_name": "仍在",
+  "description": "將屋企人嘅舊相同故事留低，冇網都睇得到。",
+  "lang": "zh-HK",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f3e9",
+  "theme_color": "#274e3a",
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

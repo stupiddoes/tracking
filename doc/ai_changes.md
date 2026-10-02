@@ -64,7 +64,8 @@
 | `backend/api/management/commands/reindex_memories.py` | 補做未索引、失敗或 embedding model 不同的圖片索引 |
 | `backend/api/grounding.py` | 回憶整理模式輸出檢查：地點、店名、食物、數字日期、引述說話要喺用戶資料出現過 |
 | `backend/api/stories.py` | 相片故事訪問：固定問題、草稿 prompt、草稿驗證（輸出檢查、主角出現、性別代名詞）及用戶原文後備 |
-| `backend/api/safety.py` | 訊息輸入分類及 guardrail decision |
+| `backend/api/language.py` | 語言判斷（按訊息中英文比例，太短就跟相簿語言）及雙語固定回覆 |
+| `backend/api/safety.py` | 訊息輸入分類及 guardrail decision（中英文） |
 | `backend/config/settings.py` | Chat model、embedding model、RAG top-k／distance threshold、訊息召回設定 |
 | `backend/api/models.py` | `MemoryAsset`、`Message.embedding`、`Conversation.summary` 等 AI／RAG 資料欄位 |
 | `backend/api/serializers.py` | 圖片、caption、敏感度及伙伴 ownership 驗證 |
@@ -105,6 +106,8 @@
 | `MEMORY_MAX_COSINE_DISTANCE` | `0.45` | 高信心圖片候選的最大分數（distance 減關鍵字加分） |
 | `MEMORY_RELAXED_MAX_DISTANCE` | `0.64` | 冇高信心候選時，最佳一張仍可入選的上限 |
 | `MEMORY_MIN_MARGIN` | `0.08` | 放寬入選時，最佳一張要領先第二名幾多；明確問相時唔使 |
+| `MEMORY_WIDE_MAX_DISTANCE` | `0.72` | 最佳一張大幅領先時可以入選嘅上限；主要令英文搵中文描述搵得到 |
+| `MEMORY_WIDE_MIN_MARGIN` | `0.12` | 用上面上限時，最佳一張要領先第二名幾多 |
 | `MEMORY_KEYWORD_BOOST` | `0.10` | Tag 命中扣減的分數；caption 詞語重疊每個扣一半，總上限 1.5 倍 |
 | `MEMORY_SPONTANEOUS_MAX_DISTANCE` | `0.35` | 一般對話由 backend 主動附圖的較嚴格 distance 上限 |
 | `MEMORY_IMAGE_COOLDOWN_ASSISTANT_MESSAGES` | `8` | 最近幾個 assistant 回覆曾附圖時暫停主動附圖 |
@@ -125,6 +128,47 @@ num_predict=320
 `num_predict` 只限制單次回答，完整 conversation 仍永久保存並可經摘要／RAG 延續。
 
 ## 5. 改動歷史
+
+### 2026-10-02 — 記錄相片解像度，顯示印刷清晰度
+
+**Commit title：** `Record photo sizes and show print quality for the book`
+
+- `MemoryAsset.width`／`height`（migration `0010`）喺上載同背景 index 時讀取，按 EXIF 方向轉正；`reindex_memories` 會補記錄舊相（只讀檔頭，唔重新 index）。
+- `api/printing.py`：按 A5 全頁相片闊約 128 mm 計算 dpi；`≥250` 為好，`≥150` 為可以接受，以下為偏低。API 回傳 `print_quality`，相片詳情頁顯示，偏低時建議用原本檔案或者掃描。
+- 未做 AI 放大：真正嘅放大要專門模型（例如 Real-ESRGAN），本機冇 GPU 而且記憶體有限；交俾外部服務又違反「唔會交俾其他 AI 公司」嘅承諾。
+
+
+### 2026-09-30 — 支援英文用戶
+
+**Commit title：** `Support English: reply language, grounding rules, retrieval and UI`
+
+改動：
+
+- **語言判斷：** 每句訊息按英文字母同中文字比例判斷（英文字母要有中文字 3 倍以上先當英文），所以「有冇 teddy bear 嘅相」仍然係廣東話；判斷唔到就跟相簿語言（新欄位 `Character.language`，migration `0009`）。
+- **對話：** 英文訊息會換上英文回覆風格同英文例句，唔行繁體轉換同粵語用詞修正；搵到相、搵唔到相、主動附相、來源標籤同危機回應都有英文版。
+- **講故事：** 問題同 AI 圖片描述跟相簿語言；草稿跟答案語言，英文答案唔會被翻譯。英文草稿如果用咗用戶冇用過嘅 she／he 等代名詞，會改用用戶原文。
+- **輸出檢查（英文規則）：** 只喺英文回覆用。捉大寫專有名詞（句首、稱呼、節日、月份除外）、兩位或以上嘅數字、港式食物英文名、引號內容同「she said／used to say」句式；問句同樣唔當聲稱。
+- **檢索：** 英文搵中文描述，排名正確但距離偏高（`0.66–0.69`），新增規則：最佳一張 `≤0.72` 而且領先第二名 `≥0.12` 都入選。相簿搜尋同對話共用 `_clear_best`。回歸測試加入 12 句英文，共 30 句全部通過；關閉新規則會令 2 句英文失敗。
+- **明確問相：** `photos`、`pictures`、`pics` 都當問相。
+- **危機偵測：** 加入英文字句。
+- **介面：** 加入英文版（`frontend/src/i18n.ts`，以中文原句做 key，冇翻譯就顯示中文），landing page 同設定可以切換；建立相簿可以揀相簿語言；有代碼嘅 backend 錯誤訊息會顯示英文。
+
+未驗證及已知限制：
+
+- 真 `gemma3:4b` 驗證（本機記憶體釋放後補做）：8 個英文對話回覆全部冇作嘢，會反問用戶；初版英文輸出檢查誤刪咗 3 句（英文問句被當聲稱、「Sundays」複數、彎引號「I’m」），已修正並將真實回覆加入測試。4 份英文草稿全部保留「I」同用戶原話，冇被翻譯；其中 1 份加咗答案冇講過嘅感受（「It was a really special Christmas」），輸出檢查捉唔到，靠用戶保存前檢查。
+- 相片描述係中文而對話用英文時，AI 提到嘅英文地名（例如 Cheung Chau）喺中文資料搵唔到，會被輸出檢查刪走。等書本功能儲存翻譯之後，可以將翻譯加入資料來源解決。
+- 英文成人模式嘅跳出角色回覆只會換成中性句，唔會用中文版嗰句固定回覆。
+- 表單驗證類錯誤訊息（冇錯誤代碼）仍然係中文。
+
+涉及檔案：
+
+- `backend/api/language.py`、`backend/api/views.py`、`backend/api/grounding.py`、`backend/api/stories.py`、`backend/api/safety.py`
+- `backend/api/models.py`、`backend/api/serializers.py`、`backend/api/migrations/0009_character_language.py`
+- `backend/config/settings.py`、`.env.example`
+- `backend/api/fixtures/memory_retrieval_cases.json`、`backend/api/fixtures/memory_retrieval_vectors.json`
+- `backend/api/tests.py`
+- `frontend/src/i18n.ts`、`frontend/src/App.tsx`、`frontend/src/styles.css`、`frontend/src/landing.css`
+- `doc/ai_changes.md`
 
 ### 2026-09-24 — 加入相片故事訪問
 

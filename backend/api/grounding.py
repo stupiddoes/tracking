@@ -3,8 +3,11 @@
 gemma3:4b invents places, foods, dates and quotes about the person even when told not to.
 Declarative sentences that mention such a detail absent from the sources are removed;
 questions to the user ("例如燒鵝定叉燒呀？") are allowed because they claim nothing.
+English replies get equivalent rules for capitalised names, numbers, dishes and quotes.
 """
 import re
+
+from .language import EN, ZH
 
 # Characters that turn a place-like match into a generic phrase ("附近啲老茶樓", "嗰間公園").
 _GENERIC_PLACE_CHARS = frozenset("我你佢哋嘅個呢嗰啲咗係喺去到同都好一間條座處邊度附近老舊大細新啱例如或者定上落嚟")
@@ -19,12 +22,68 @@ _FOODS = (
     "艇仔粥", "皮蛋瘦肉粥", "煲仔飯", "燒味", "白切雞", "豉油雞", "糖水", "紅豆沙", "芝麻糊", "湯圓",
     "月餅", "年糕", "糭", "粽", "餃子", "麵線", "炒飯", "炒麵", "豬扒包", "西多士",
 )
-_SENTENCE = re.compile(r"[^。！？!?\n]+[。！？!?\n]*")
-_FALLBACK_NOTE = "呢部分我手上冇資料，唔想亂估；你記得嘅話，可以同我講講。"
+# A full stop only ends a sentence before whitespace, so "2.5" and "Mr." inside text stay whole.
+_SENTENCE = re.compile(r".+?(?:[。！？!?\n]+|\.(?=\s|$)|$)", re.S)
+_FALLBACK = {
+    ZH: {
+        "note": "呢部分我手上冇資料，唔想亂估；你記得嘅話，可以同我講講。",
+        "replaced": "呢樣我手上冇資料，唔想亂估。你記得嘅話，可以同我講講{subject}事嗎？",
+    },
+    EN: {
+        "note": "I don't have that detail in what you've shared, so I won't guess. If you remember, tell me about it.",
+        "replaced": "I don't have anything about that yet, so I won't guess. If you remember, would you tell me about {subject}?",
+    },
+}
+
+# Capitalised words that are not specific details: family titles, festivals, languages, calendar words.
+_EN_COMMON = frozenset("""
+i i'm i've i'd i'll ai ok okay grandma grandpa granny nana mum mom mother dad father auntie aunt uncle
+mama papa christmas easter chinese cantonese english mandarin new year lunar mid-autumn
+monday tuesday wednesday thursday friday saturday sunday january february march april may june july
+august september october november december
+""".split())
+_EN_NAME = re.compile(r"(?<![\w'’])[A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*)*")
+_EN_NUMBER = re.compile(r"\b(\d{2,4})(?:s|st|nd|rd|th)?\b")
+_EN_QUOTE = re.compile(r"[“\"]([^”\"]{6,})[”\"]")
+_EN_FOODS = (
+    "har gow", "siu mai", "char siu", "cha siu", "egg tart", "milk tea", "wonton", "congee", "roast goose",
+    "pineapple bun", "fish ball", "fishball", "rice noodle roll", "cheung fun", "egg waffle", "pork chop bun",
+    "claypot rice", "mooncake", "rice dumpling", "turnip cake", "chicken feet", "lo mai gai", "sweet soup",
+)
 
 
-def _unsupported_details(text, sources, name):
+def _is_common(word, name):
+    lowered = word.lower()
+    return lowered in _EN_COMMON or lowered.rstrip("s") in _EN_COMMON or lowered == name.lower()
+
+
+def _unsupported_english(text, sources, name):
+    text = text.replace("’", "'")
+    lowered_sources = sources.lower().replace("’", "'")
     found = []
+    for match in _EN_NAME.finditer(text):
+        words = [re.sub(r"'s$", "", word) for word in match.group(0).split()]
+        if not text[:match.start()].strip():
+            words = words[1:]  # Every sentence starts with a capital.
+        words = [word for word in words if not _is_common(word, name)]
+        if words and not all(word.lower() in lowered_sources for word in words):
+            found.append(" ".join(words))
+    found.extend(m.group(0) for m in _EN_NUMBER.finditer(text) if m.group(1) not in sources)
+    lowered = text.lower()
+    found.extend(food for food in _EN_FOODS if food in lowered and food not in lowered_sources)
+    speaker = rf"(?:she|he|{re.escape(name)})" if name else "(?:she|he)"
+    speech = re.search(
+        rf"\b{speaker}\s+(?:always\s+|often\s+|used\s+to\s+|would\s+)?(?:said|say|says|told\s+(?:me|us|you))\b[\s,:]*(.{{8,}})",
+        text, re.IGNORECASE,
+    )
+    if speech and speech.group(1)[:12].lower() not in lowered_sources:
+        found.append(speech.group(0)[:30])
+    found.extend(m.group(0) for m in _EN_QUOTE.finditer(text) if m.group(1).lower() not in lowered_sources)
+    return found
+
+
+def _unsupported_details(text, sources, name, language=ZH):
+    found = _unsupported_english(text, sources, name) if language == EN else []
     for match in _PLACE.finditer(text):
         prefix, core = match.group(1), ""
         while prefix and prefix[-1] not in _GENERIC_PLACE_CHARS:
@@ -43,28 +102,41 @@ def _unsupported_details(text, sources, name):
     return found
 
 
+# English questions usually open with one of these, and then the whole sentence asks.
+_EN_QUESTION_START = re.compile(
+    r"^\s*(?:do|does|did|was|were|is|are|am|can|could|would|will|should|have|has|had|what|which|where|when|who|whom|whose|why|how)\b",
+    re.IGNORECASE,
+)
+
+
 def _claim_part(sentence):
     """The part of a sentence that asserts something; the final clause of a question only asks."""
     if not re.search(r"[？?]\s*$", sentence):
         return sentence
-    head, _, _question = sentence.rpartition("，")
-    return head
+    if _EN_QUESTION_START.match(sentence):
+        return ""
+    comma = max(sentence.rfind("，"), sentence.rfind(", "))
+    return sentence[:comma] if comma >= 0 else ""
 
 
-def check_archive_answer(answer, sources, name=""):
+def check_archive_answer(answer, sources, name="", language=ZH):
     """Return (answer, action) where action is "" (unchanged), "trimmed" or "replaced"."""
     kept, removed = [], False
     for sentence in _SENTENCE.findall(answer):
-        if _unsupported_details(_claim_part(sentence), sources, name):
+        if _unsupported_details(_claim_part(sentence), sources, name, language):
             removed = True
         else:
             kept.append(sentence)
     if not removed:
         return answer, ""
+    fallback = _FALLBACK[EN if language == EN else ZH]
     remaining = "".join(kept).strip()
     if len(remaining) < 6:
-        subject = f"{name}嘅" if name else ""
-        return f"呢樣我手上冇資料，唔想亂估。你記得嘅話，可以同我講講{subject}事嗎？", "replaced"
+        if language == EN:
+            subject = name or "them"
+        else:
+            subject = f"{name}嘅" if name else ""
+        return fallback["replaced"].format(subject=subject), "replaced"
     if re.search(r"[？?]\s*$", remaining):
         return remaining, "trimmed"
-    return f"{remaining}\n{_FALLBACK_NOTE}", "trimmed"
+    return f"{remaining}\n{fallback['note']}", "trimmed"

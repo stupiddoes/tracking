@@ -1,11 +1,12 @@
 from rest_framework import serializers
 from .models import Character, Conversation, MemoryAsset, Message
+from .printing import print_quality
 from .thumbnails import thumbnail_url
 
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Character
-        fields = ("id", "name", "mode", "relationship", "description", "persona", "boundaries", "adult_content_enabled", "created_at", "updated_at")
+        fields = ("id", "name", "mode", "relationship", "description", "persona", "boundaries", "adult_content_enabled", "language", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
 
     def validate(self, attrs):
@@ -34,15 +35,16 @@ class ConversationSerializer(serializers.ModelSerializer):
 class MemoryAssetSerializer(serializers.ModelSerializer):
     content_url = serializers.SerializerMethodField()
     thumbnail_url = serializers.SerializerMethodField()
+    print_quality = serializers.SerializerMethodField()
     character = serializers.PrimaryKeyRelatedField(queryset=Character.objects.none())
 
     class Meta:
         model = MemoryAsset
         fields = (
             "id", "character", "image", "caption", "generated_caption", "tags", "captured_at",
-            "sensitivity", "display_policy", "index_status", "index_error", "content_url", "thumbnail_url", "created_at",
+            "sensitivity", "display_policy", "index_status", "index_error", "width", "height", "print_quality", "content_url", "thumbnail_url", "created_at",
         )
-        read_only_fields = ("id", "generated_caption", "index_status", "index_error", "content_url", "thumbnail_url", "created_at")
+        read_only_fields = ("id", "generated_caption", "index_status", "index_error", "width", "height", "print_quality", "content_url", "thumbnail_url", "created_at")
         extra_kwargs = {
             "image": {"write_only": True},
             "caption": {"required": False, "allow_blank": True},
@@ -76,3 +78,6 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
 
     def get_thumbnail_url(self, obj):
         return thumbnail_url(obj)
+
+    def get_print_quality(self, obj):
+        return print_quality(obj.width, obj.height)

@@ -28,6 +28,19 @@ def jpeg_bytes(image_field, max_side, quality):
     return encoded.getvalue()
 
 
+def image_size(image_field):
+    """(width, height) of the upright image, read from the file header only."""
+    image_field.open("rb")
+    try:
+        with Image.open(image_field) as source:
+            width, height = source.size
+            orientation = source.getexif().get(0x0112)
+    finally:
+        image_field.close()
+    # EXIF orientations 5–8 rotate the picture by 90 degrees.
+    return (height, width) if orientation in (5, 6, 7, 8) else (width, height)
+
+
 def thumbnail_version(asset):
     return hashlib.sha1(asset.image.name.encode()).hexdigest()[:10]
 

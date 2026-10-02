@@ -3,6 +3,8 @@ from django.conf import settings
 from django.db import models
 from pgvector.django import VectorField
 
+from .language import LANGUAGE_CHOICES, ZH
+
 
 class Profile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
@@ -27,6 +29,8 @@ class Character(models.Model):
     persona = models.JSONField(default=dict, blank=True)
     boundaries = models.JSONField(default=dict, blank=True)
     adult_content_enabled = models.BooleanField(default=False)
+    # Language the AI uses for questions and photo descriptions in this album.
+    language = models.CharField(max_length=8, choices=LANGUAGE_CHOICES, default=ZH)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,6 +83,9 @@ class MemoryAsset(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memory_assets")
     character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name="memory_assets")
     image = models.ImageField(upload_to=memory_image_path)
+    # Pixel size of the original, for judging print quality in the photo book.
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
     caption = models.TextField()
     generated_caption = models.TextField(blank=True)
     tags = models.CharField(max_length=500, blank=True)

@@ -3,7 +3,7 @@ from django.db.models import Q
 
 from api.models import MemoryAsset
 from api.tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
-from api.views import _index_memory_asset, _memory_embedding_model
+from api.views import _index_memory_asset, _memory_embedding_model, _record_image_size
 
 
 class Command(BaseCommand):
@@ -15,6 +15,14 @@ class Command(BaseCommand):
         parser.add_argument("--queue", action="store_true", help="Send work to the Celery worker instead of running inline.")
 
     def handle(self, *args, **options):
+        # Photos uploaded before sizes were recorded only need their header read, not reindexing.
+        unsized = MemoryAsset.objects.filter(width__isnull=True)
+        sized = 0
+        for asset in unsized.iterator():
+            _record_image_size(asset)
+            sized += bool(asset.width)
+        if sized:
+            self.stdout.write(f"Recorded the size of {sized} photo(s).")
         assets = MemoryAsset.objects.order_by("created_at")
         if not options["all"]:
             assets = assets.filter(
