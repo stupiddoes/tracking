@@ -1,6 +1,8 @@
-# 仍在（Still Here）
+# Photolore
 
-Local-first AI 回憶連結與幻想伙伴 Web App。Project 使用獨立、只限 Docker internal network 存取的 Ollama／Gemma 3，React 提供文字對話、語音逐字稿確認及回憶來源介面。
+以相片為核心嘅家族相簿：AI 幫你問相片背後嘅故事、整理成描述，之後講一句就搵得返相，冇網都睇得到。網站：https://photolore.app
+
+Ollama／Gemma 3 喺自己伺服器、只限 Docker internal network 存取嘅容器運行；React 提供相簿、講故事、講回憶同離線介面，支援廣東話同英文。
 
 ## 啟動
 

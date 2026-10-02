@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 190">
+  <defs>
+    <linearGradient id="plumage" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#173a3a"/>
+      <stop offset="1" stop-color="#0f2626"/>
+    </linearGradient>
+    <linearGradient id="wingNear" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#1d4746"/>
+      <stop offset=".55" stop-color="#14332f"/>
+      <stop offset="1" stop-color="#0c1f1d"/>
+    </linearGradient>
+    <linearGradient id="wingFar" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#112a28"/>
+      <stop offset="1" stop-color="#0a1a19"/>
+    </linearGradient>
+    <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6ecdb"/>
+      <stop offset="1" stop-color="#e8d2ae"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3d7f86" stop-opacity="0"/>
+      <stop offset=".6" stop-color="#4d9aa0" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#3d7f86" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cfe0e4"/>
+      <stop offset="1" stop-color="#f2e6cc"/>
+    </linearGradient>
+    <clipPath id="nearWing"><path d="M160 88 C146 68 122 48 96 32 C82 24 68 18 54 14 C66 22 80 32 92 44 C104 56 118 72 132 92 Z"/></clipPath>
+    <clipPath id="farWing"><path d="M150 104 C134 120 112 136 86 150 C76 155 66 159 56 162 C70 150 86 136 100 124 C112 114 124 106 136 100 Z"/></clipPath>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0b1a16" flood-opacity=".25"/>
+    </filter>
+  </defs>
+
+  <!-- far wing, sweeping down and back -->
+  <path d="M150 104 C134 120 112 136 86 150 C76 155 66 159 56 162 C70 150 86 136 100 124 C112 114 124 106 136 100 Z" fill="url(#wingFar)"/>
+  <path d="M140 106 C122 122 102 136 70 156" stroke="#24504d" stroke-width="1.2" fill="none" opacity=".7" clip-path="url(#farWing)"/>
+
+  <!-- forked tail with long outer streamers and white spots -->
+  <path d="M116 108 C100 104 80 100 60 96 C46 93 32 91 18 90 C32 94 46 98 60 102 C74 106 86 110 96 112 C84 118 70 126 56 134 C46 140 36 146 28 150 C40 146 54 140 68 132 C82 124 98 118 114 114 Z" fill="url(#plumage)"/>
+  <ellipse cx="84" cy="104" rx="4" ry="1.6" fill="#f3ead8" transform="rotate(10 84 104)"/>
+  <ellipse cx="80" cy="121" rx="4" ry="1.6" fill="#f3ead8" transform="rotate(-24 80 121)"/>
+
+  <!-- body -->
+  <path d="M112 108 C126 90 154 76 178 72 C194 70 204 76 202 88 C200 98 188 104 172 108 C152 113 130 115 112 108 Z" fill="url(#plumage)"/>
+  <!-- cream underparts -->
+  <path d="M128 111 C148 112 168 108 182 99 C180 108 166 116 146 117 C138 117 132 115 128 111 Z" fill="url(#belly)"/>
+  <!-- dark breast band, then rust throat and forehead -->
+  <path d="M182 100 C186 99 190 98 193 100 C190 104 186 106 180 106 Z" fill="#14302e"/>
+  <path d="M203 86 C204 92 200 98 193 100 C188 98 188 92 192 88 C195 86 199 86 203 86 Z" fill="#a8402a"/>
+  <path d="M199 76 C202 77 204 79 204 82 C201 81 198 79 196 78 Z" fill="#a8402a"/>
+  <!-- gloss along the back -->
+  <path d="M126 96 C146 84 168 78 188 76" stroke="url(#sheen)" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+  <!-- near wing, raised high: long pointed primaries -->
+  <path d="M160 88 C146 68 122 48 96 32 C82 24 68 18 54 14 C66 22 80 32 92 44 C104 56 118 72 132 92 Z" fill="url(#wingNear)"/>
+  <g clip-path="url(#nearWing)" fill="none" stroke="#2c6461">
+    <path d="M154 86 C138 66 114 46 70 20" stroke-width="1.3" opacity=".8"/>
+    <path d="M146 88 C130 70 108 52 82 36" stroke-width="1.1" opacity=".6"/>
+    <path d="M138 90 C124 76 106 62 90 50" stroke-width="1" opacity=".45"/>
+  </g>
+  <!-- wing coverts where the wing meets the body -->
+  <path d="M164 88 C156 78 146 72 136 70 C146 78 152 86 156 94 Z" fill="#1f4c4a"/>
+
+  <!-- head detail -->
+  <circle cx="191" cy="80" r="2.6" fill="#08100f"/>
+  <circle cx="191.8" cy="79.2" r=".8" fill="#ffffff"/>
+  <!-- the photo it carries home, gripped at its corner -->
+  <g transform="rotate(-14 212 88)" filter="url(#soft)">
+    <rect x="208" y="82" width="36" height="42" rx="1.5" fill="#fbf6ea"/>
+    <rect x="212" y="86" width="28" height="26" fill="url(#sky)"/>
+    <path d="M212 112 L222 100 L229 107 L234 102 L240 112 Z" fill="#87947a"/>
+    <path d="M212 112 L226 104 L240 112 Z" fill="#6f7f66" opacity=".6"/>
+    <circle cx="234" cy="93" r="2.6" fill="#d9a441"/>
+  </g>
+  <path d="M202 81 L216 84.5 L202 88 Z" fill="#1a1a18"/>
+  <path d="M202 84.5 L215 84.5" stroke="#3a3a36" stroke-width=".8"/>
+
+</svg>

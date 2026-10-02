@@ -1,7 +1,7 @@
 {
-  "name": "仍在 · 家族相簿",
-  "short_name": "仍在",
-  "description": "將屋企人嘅舊相同故事留低，冇網都睇得到。",
+  "name": "Photolore",
+  "short_name": "Photolore",
+  "description": "保存相片背後嘅故事，冇網都睇得到。",
   "lang": "zh-HK",
   "start_url": "/",
   "scope": "/",

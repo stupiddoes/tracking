@@ -47,7 +47,7 @@ const ERRORS_EN: Record<string, string> = {
 
 const EN: Record<string, string> = {
   // Landing and sign-in
-  '仍在 · 家族相簿': 'StillHere · Family Album',
+  '相片背後嘅故事': 'The stories behind your photos',
   '將屋企人嘅舊相同故事，好好留低。': 'Keep your family\'s old photos and the stories behind them.',
   '上載舊相，AI 會一條一條問你：相入面係邊個、嗰日發生咩事。你講，佢幫你整理。之後講一句就搵得返。': 'Upload old photos and the AI asks, one question at a time: who is in the picture, what happened that day. You tell it; it writes it up. Later, one sentence finds the photo again.',
   '開始使用': 'Get started',
