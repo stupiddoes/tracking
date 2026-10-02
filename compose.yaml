@@ -69,8 +69,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-stillhere}:${POSTGRES_PASSWORD:-stillhere-local}@postgres:5432/${POSTGRES_DB:-stillhere}
       REDIS_URL: redis://redis:6379/0
       OLLAMA_BASE_URL: http://ollama:11434
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend,172.233.65.48,172.233.74.36}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://172.233.65.48:4173,http://172.233.74.36:4173}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend,172.233.65.48,172.233.74.36,photolore.app,www.photolore.app}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://photolore.app,https://www.photolore.app,http://172.233.65.48:4173,http://172.233.74.36:4173}
     volumes:
       - uploaded_assets:/data/assets
       - exports:/data/exports
@@ -113,6 +113,11 @@ services:
         VITE_API_URL: /api/v1
     ports:
       - "0.0.0.0:4173:4173"
+      # Cloudflare reaches the origin on 80 (Flexible) or 443 (Full strict with an Origin Certificate).
+      - "0.0.0.0:80:4173"
+      - "0.0.0.0:443:8443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       backend:
         condition: service_healthy
