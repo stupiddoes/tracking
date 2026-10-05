@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="sc-gradsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fb0d2"/><stop offset="1" stop-color="#d6e2ec"/></linearGradient></defs><rect width="400" height="300" fill="url(#sc-gradsky)"/>
+      <rect x="40" y="96" width="320" height="130" fill="#e8e0cf"/>
+      <path d="M30 96 L200 52 L370 96 Z" fill="#d8ccb4"/>
+      <g fill="#cfc3aa"><rect x="70" y="110" width="14" height="116"/><rect x="120" y="110" width="14" height="116"/><rect x="266" y="110" width="14" height="116"/><rect x="316" y="110" width="14" height="116"/></g>
+      <rect x="170" y="140" width="60" height="86" fill="#7a6a58"/>
+      <rect y="222" width="400" height="78" fill="#7fa364"/>
+      <path d="M0 236 C120 228 280 244 400 232" stroke="#6f9157" stroke-width="3" fill="none"/>
+      <!-- graduate -->
+      <path d="M128 300 L136 200 C140 182 186 182 190 200 L198 300 Z" fill="#1f2c55"/>
+      <path d="M148 196 L163 230 L178 196 Z" fill="#b8392e"/>
+      <circle cx="163" cy="168" r="17" fill="#e4bf98"/>
+      <path d="M146 162 C148 150 178 150 180 162 C176 158 150 158 146 162 Z" fill="#2a1f1a"/>
+      <path d="M134 150 L163 140 L192 150 L163 160 Z" fill="#141c38"/>
+      <rect x="158" y="150" width="10" height="8" fill="#141c38"/>
+      <path d="M188 151 L192 172" stroke="#e9c35a" stroke-width="2"/><circle cx="192" cy="174" r="2.6" fill="#e9c35a"/>
+      <rect x="186" y="230" width="34" height="9" rx="4.5" fill="#f8f4ea" transform="rotate(-18 203 234)"/>
+      <path d="M200 228 L202 240" stroke="#b8392e" stroke-width="3" transform="rotate(-18 203 234)"/>
+      <path d="M190 220 C196 226 198 232 196 238" stroke="#1f2c55" stroke-width="12" stroke-linecap="round" fill="none"/>
+      <!-- Grandma, shorter, in a cardigan, holding a flask -->
+      <path d="M238 300 L244 236 C246 222 280 222 284 236 L290 300 Z" fill="#9a6b85"/>
+      <path d="M246 238 L262 262 L280 238" stroke="#7e5570" stroke-width="3" fill="none"/>
+      <circle cx="264" cy="208" r="15" fill="#e2bb93"/>
+      <path d="M248 204 C248 190 280 190 280 204 C276 198 252 198 248 204 Z" fill="#c9c3bb"/>
+      <circle cx="264" cy="191" r="7" fill="#c9c3bb"/>
+      <rect x="222" y="252" width="16" height="30" rx="4" fill="#d8dee2"/>
+      <rect x="222" y="252" width="16" height="7" rx="3" fill="#9aa7b0"/>
+      <path d="M242 246 C236 252 234 258 236 264" stroke="#9a6b85" stroke-width="10" stroke-linecap="round" fill="none"/></svg>

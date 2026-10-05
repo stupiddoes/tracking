@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><radialGradient id="sc-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff2b0"/><stop offset="1" stop-color="#fff2b0" stop-opacity="0"/></radialGradient><radialGradient id="sc-lamp" cx=".2" cy=".35" r=".6"><stop offset="0" stop-color="#ffd27a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient></defs><rect width="400" height="300" fill="#7b4f3b"/>
+      <rect width="400" height="300" fill="url(#sc-lamp)"/>
+      <rect y="232" width="400" height="68" fill="#4a3024"/>
+      <path d="M0 232 H400" stroke="#2f1e16" stroke-width="3"/>
+      <!-- window at night -->
+      <rect x="272" y="40" width="96" height="120" fill="#1f2c45"/>
+      <rect x="272" y="40" width="96" height="120" fill="none" stroke="#e6d6b8" stroke-width="6"/>
+      <path d="M320 40 V160 M272 100 H368" stroke="#e6d6b8" stroke-width="4"/>
+      <g fill="#f3e3a6"><circle cx="292" cy="62" r="1.6"/><circle cx="346" cy="74" r="1.4"/><circle cx="300" cy="128" r="1.4"/><circle cx="352" cy="140" r="1.6"/></g>
+      <rect x="290" y="114" width="12" height="40" fill="#2c3a56"/><rect x="336" y="104" width="16" height="50" fill="#2c3a56"/>
+      <g fill="#f0c25c"><rect x="293" y="120" width="3" height="3"/><rect x="340" y="112" width="3" height="3"/><rect x="345" y="126" width="3" height="3"/></g>
+      <!-- tree -->
+      <rect x="160" y="210" width="20" height="26" fill="#5a3a24"/>
+      <path d="M170 40 L222 120 H198 L236 176 H206 L250 220 H90 L134 176 H104 L142 120 H118 Z" fill="#2e6a45"/>
+      <path d="M170 40 L196 80 L170 70 L146 84 Z" fill="#3b7d54" opacity=".6"/>
+      <path d="M122 118 C150 128 190 126 218 116 M110 176 C150 188 196 186 232 174 M98 218 C150 228 196 228 244 216" stroke="#d9b45a" stroke-width="2" fill="none"/>
+      <g><circle cx="140" cy="122" r="9" fill="url(#sc-glow)"/><circle cx="196" cy="124" r="9" fill="url(#sc-glow)"/><circle cx="126" cy="180" r="9" fill="url(#sc-glow)"/><circle cx="178" cy="186" r="9" fill="url(#sc-glow)"/><circle cx="222" cy="178" r="9" fill="url(#sc-glow)"/><circle cx="150" cy="222" r="9" fill="url(#sc-glow)"/><circle cx="208" cy="222" r="9" fill="url(#sc-glow)"/></g>
+      <g><circle cx="140" cy="122" r="3" fill="#ffe08a"/><circle cx="196" cy="124" r="3" fill="#ff8a6b"/><circle cx="126" cy="180" r="3" fill="#ffe08a"/><circle cx="178" cy="186" r="3" fill="#ff8a6b"/><circle cx="222" cy="178" r="3" fill="#ffe08a"/><circle cx="150" cy="222" r="3" fill="#ff8a6b"/><circle cx="208" cy="222" r="3" fill="#ffe08a"/></g>
+      <path d="M170 24 l5 11 l12 1 l-9 8 l3 12 l-11 -6 l-11 6 l3 -12 l-9 -8 l12 -1 Z" fill="#f6d36b"/>
+      <!-- presents -->
+      <rect x="100" y="228" width="44" height="34" fill="#b8392e"/><path d="M122 228 V262 M100 244 H144" stroke="#f1d27a" stroke-width="5"/>
+      <rect x="186" y="236" width="52" height="28" fill="#2f6a52"/><path d="M212 236 V264 M186 250 H238" stroke="#f3ecd8" stroke-width="5"/>
+      <rect x="150" y="246" width="30" height="20" fill="#e3c06b"/><path d="M165 246 V266" stroke="#b8392e" stroke-width="4"/>
+      <!-- sofa arm -->
+      <path d="M0 196 C20 186 44 188 52 200 V300 H0 Z" fill="#8a6b52"/>
+      <path d="M0 214 C18 206 34 208 40 218" stroke="#6e533f" stroke-width="3" fill="none"/></svg>

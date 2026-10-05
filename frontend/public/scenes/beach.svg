@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="sc-sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9c08e"/><stop offset="1" stop-color="#ead8ad"/></linearGradient><linearGradient id="sc-sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c89a8"/><stop offset="1" stop-color="#76aec4"/></linearGradient><linearGradient id="sc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fbcd4"/><stop offset="1" stop-color="#dbe9ea"/></linearGradient></defs><rect width="400" height="150" fill="url(#sc-sky)"/>
+      <path d="M0 140 C40 120 80 112 120 124 C150 132 170 120 200 128 L200 142 L0 142 Z" fill="#7d9786"/>
+      <path d="M250 138 C280 126 310 124 340 132 L340 142 L250 142 Z" fill="#8ea596"/>
+      <rect y="140" width="400" height="62" fill="url(#sc-sea)"/>
+      <path d="M20 160 q15 -5 30 0 M90 172 q15 -5 30 0 M180 158 q15 -5 30 0 M270 176 q15 -5 30 0 M330 162 q15 -5 30 0" stroke="#e8f2f4" stroke-width="2" fill="none" opacity=".8"/>
+      <path d="M300 150 l22 0 l-4 6 l-14 0 Z" fill="#f2efe6"/><path d="M311 150 v-12 l8 10 Z" fill="#f2efe6"/>
+      <path d="M0 198 C120 190 260 206 400 196 L400 300 L0 300 Z" fill="url(#sc-sand)"/>
+      <path d="M0 202 C120 194 260 210 400 200" stroke="#f4ecd8" stroke-width="4" fill="none" opacity=".9"/>
+      <!-- umbrella -->
+      <path d="M116 168 L120 268" stroke="#6b5a48" stroke-width="4"/>
+      <path d="M40 172 C60 120 176 112 196 166 Z" fill="#f4efe4"/>
+      <path d="M40 172 C52 140 80 126 96 124 L104 168 Z M118 120 C136 122 150 130 160 140 L150 168 Z M178 150 C186 156 192 162 196 166 L176 168 Z" fill="#c94a3a"/>
+      <path d="M40 172 C70 160 166 158 196 166" stroke="#a8392b" stroke-width="2" fill="none"/>
+      <ellipse cx="118" cy="262" rx="70" ry="10" fill="#bfa477" opacity=".5"/>
+      <!-- Grandma on a low stool, from behind -->
+      <rect x="104" y="238" width="44" height="6" rx="2" fill="#5d7f8c"/>
+      <path d="M110 238 L104 262 M142 238 L148 262" stroke="#5d7f8c" stroke-width="4"/>
+      <path d="M106 240 C104 214 112 196 126 194 C140 196 148 214 146 240 Z" fill="#b8665a"/>
+      <g fill="#e9c8a0" opacity=".85"><circle cx="118" cy="210" r="2.5"/><circle cx="132" cy="220" r="2.5"/><circle cx="124" cy="230" r="2.5"/><circle cx="138" cy="206" r="2.5"/></g>
+      <circle cx="126" cy="186" r="11" fill="#bdb6ad"/>
+      <ellipse cx="126" cy="180" rx="22" ry="6" fill="#e3d2a4"/>
+      <path d="M114 180 C116 168 136 168 138 180 Z" fill="#e3d2a4"/>
+      <path d="M104 180 C114 184 138 184 148 180" stroke="#9b7b4c" stroke-width="2" fill="none"/>
+      <!-- children at the water's edge -->
+      <g fill="#2f3a44"><circle cx="276" cy="186" r="5"/><path d="M271 192 h10 l2 16 h-14 Z"/><path d="M272 208 l-2 10 M280 208 l2 10" stroke="#2f3a44" stroke-width="3"/>
+        <circle cx="304" cy="190" r="4.5"/><path d="M299 195 h9 l2 14 h-13 Z"/><path d="M301 209 l-2 9 M307 209 l2 9" stroke="#2f3a44" stroke-width="3"/></g>
+      <path d="M288 196 l10 -6" stroke="#2f3a44" stroke-width="2.5"/>
+      <circle cx="232" cy="236" r="9" fill="#e5583a"/><path d="M226 233 h12" stroke="#f4efe4" stroke-width="2"/></svg>

@@ -1,0 +1,136 @@
+/* Album theme for the app, loaded after every other stylesheet so it wins at equal specificity.
+   Prints with white borders, film date stamps, handwritten headings, kraft paper and square-ish buttons. */
+@import url('https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&family=Share+Tech+Mono&family=Fraunces:opsz,wght@9..144,600&display=swap');
+
+:root {
+  --kraft: #e7dcc6;
+  --kraft-deep: #d8c9ab;
+  --page: #f3ebda;
+  --print: #fbf8f1;
+  --ink: #2a2622;
+  --ink-soft: #5b5248;
+  --accent: #1f4a42;
+  --stamp: #f07a2a;
+  --rust: #a8402a;
+  --note: #fff3a8;
+  --line: rgba(80, 60, 30, .28);
+  --hand: 'LXGW WenKai TC', 'Kaiti TC', 'STKaiti', 'Noto Serif HK', serif;
+  --print-shadow: 0 1px 1px rgba(0, 0, 0, .12), 0 8px 18px -10px rgba(50, 35, 10, .5);
+  --press: 0 3px 0 #10302a;
+  color: var(--ink);
+}
+body { background: #d8ccb2; }
+.app-shell {
+  background-color: var(--kraft);
+  background-image: radial-gradient(rgba(80, 60, 30, .05) 1px, transparent 1px), radial-gradient(rgba(255, 255, 255, .18) 1px, transparent 1px);
+  background-size: 7px 7px, 11px 11px;
+  box-shadow: 0 0 60px rgba(60, 40, 15, .25);
+}
+.app-shell:before { display: none; }
+:focus-visible { outline: 3px solid var(--stamp); outline-offset: 2px; }
+
+/* Primary buttons: small radius and a solid shadow, like a key you press down. */
+.close-sheet, .create-actions .primary, .album-actions .primary, .story-actions .primary, .album-search button.primary,
+.story-prompt button, .auth-card form > button, .first-create, .index-status button, .story-interview .primary {
+  border-radius: 4px; background: var(--accent); color: #fff; box-shadow: var(--press); border: 0;
+}
+.close-sheet:active, .create-actions .primary:active, .album-actions .primary:active, .story-prompt button:active, .auth-card form > button:active { transform: translateY(2px); box-shadow: 0 1px 0 #10302a; }
+.create-actions button, .story-actions button, .album-actions button { border-radius: 4px; }
+
+/* Handwritten headings */
+.home-header h1, .section-title, .page-view > h2, .sheet h2, .welcome h2, .identity h1, .album-empty b, .auth-card h1, .add-story-sheet h2 {
+  font-family: var(--hand); font-weight: 700; color: var(--ink);
+}
+
+/* Album home */
+.home-header small { color: var(--ink-soft); }
+.home-header .portrait { background: var(--print); color: var(--accent); border: 0; box-shadow: var(--print-shadow); border-radius: 50%; font-family: var(--hand); }
+.round-button { border-radius: 4px; background: var(--print); border: 1px solid var(--line); box-shadow: 0 2px 0 rgba(80, 60, 30, .2); color: var(--ink); }
+.album-search input { border: 0; border-bottom: 2px solid var(--ink); border-radius: 0; background: transparent; padding: 0 4px; height: 44px; }
+.album-search input:focus { box-shadow: none; border-bottom-color: var(--accent); }
+.album-search button { border-radius: 4px; height: 44px; }
+.album-search button:not(.primary) { background: transparent; border: 0; text-decoration: underline; text-underline-offset: 3px; padding: 0 6px; }
+.search-note { color: var(--rust); }
+
+.story-prompt { background: none; color: var(--ink); padding: 6px 2px 4px; grid-template-columns: 108px minmax(0, 1fr); gap: 16px; border-radius: 0; }
+.story-prompt-photo { width: 108px; height: 108px; padding: 6px; background: var(--print); border-radius: 0; transform: rotate(-3deg); box-shadow: var(--print-shadow); }
+.story-prompt-photo img { border-radius: 0; }
+.story-prompt > div:last-child { background: var(--note); padding: 12px 14px 14px; transform: rotate(1deg); box-shadow: 0 6px 14px -8px rgba(50, 35, 10, .5); }
+.story-prompt small { opacity: 1; color: #8a6d18; font-weight: 700; letter-spacing: .06em; font-size: 12px; }
+.story-prompt b { font: 400 18px/1.45 var(--hand); color: var(--ink); }
+.story-prompt button { margin-top: 10px; padding: 8px 16px; font-size: 15px; }
+
+.section-title { border-bottom: 1px solid var(--line); padding-bottom: 4px; font-size: 19px; }
+.section-title span { font-family: 'Noto Sans HK', sans-serif; font-weight: 400; color: var(--ink-soft); }
+.album-grid { gap: 20px 14px; padding-top: 4px; }
+.tile { background: var(--print); padding: 7px 7px 10px; box-shadow: var(--print-shadow); gap: 6px; }
+.album-grid .tile:nth-child(odd) { transform: rotate(-1.2deg); }
+.album-grid .tile:nth-child(even) { transform: rotate(1deg); }
+.tile-photo { border-radius: 0; background: #d9cfba; }
+.tile-photo::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 58%, rgba(40, 25, 10, .22)); }
+.tile b { font: 400 16px/1.4 var(--hand); padding: 0 2px; }
+.tile small { padding: 0 2px; color: var(--ink-soft); }
+.stamp { position: absolute; right: 6px; bottom: 5px; z-index: 2; font: 13px/1 'Share Tech Mono', ui-monospace, monospace; letter-spacing: .06em; color: var(--stamp); text-shadow: 0 0 4px rgba(255, 140, 50, .8); }
+.tile-badge { z-index: 2; border-radius: 0; background: var(--rust); color: #fff; transform: rotate(-3deg); font-size: 12px; padding: 2px 8px; }
+.tile-badge.pending { background: #5b5248; color: #fff; }
+.tile-badge.adult { background: #34231d; transform: rotate(3deg); }
+.album-empty { color: var(--ink-soft); }
+.album-empty button { border-radius: 4px; background: var(--accent); color: #fff; border: 0; box-shadow: var(--press); }
+.album-error { border-radius: 4px; }
+
+/* Photo detail */
+.album-detail { background: var(--page); }
+.album-detail > img, .album-detail > .album-placeholder { background: var(--print); padding: 8px; border-radius: 0; box-shadow: var(--print-shadow); }
+.album-detail > img { height: auto; max-height: 58dvh; }
+.album-detail input, .album-detail textarea, .album-detail select { background: var(--print); border: 1px solid var(--line); border-radius: 4px; }
+.ai-caption, .index-status, .print-quality, .story-note { border-radius: 4px; }
+.ai-caption { background: var(--print); border: 1px dashed var(--line); }
+.story-start { border: 1px dashed var(--accent); background: transparent; border-radius: 4px; font-family: var(--hand); font-size: 17px; }
+.story-interview { background: var(--note); border-radius: 0; transform: rotate(-.4deg); box-shadow: 0 6px 14px -8px rgba(50, 35, 10, .5); }
+.story-question { font-family: var(--hand); font-size: 17px; }
+.story-interview textarea { background: var(--print); border-radius: 4px; }
+.story-actions button { border-radius: 4px; }
+
+/* Bottom navigation */
+.tabbar { background: var(--page); border-top: 1px solid var(--line); }
+.tabbar button { color: var(--ink-soft); }
+.tabbar button[aria-current="page"] { color: var(--ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
+.tabbar .tab-add { box-shadow: var(--press); background: var(--accent); text-decoration: none; }
+
+/* Reminiscing */
+.chat-header { background: rgba(243, 235, 218, .94); border-bottom: 1px solid var(--line); }
+.identity .portrait, .mini-avatar { background: var(--print); color: var(--accent); border: 0; box-shadow: var(--print-shadow); font-family: var(--hand); }
+.mode-pill { color: var(--ink-soft); }
+.message.assistant .message-body { background: var(--print); padding: 10px 14px; border-radius: 2px 12px 12px 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.message.user .message-body { background: #ddd2bb; border-radius: 12px 12px 2px 12px; padding: 10px 16px; }
+.message-body, .message-body > p { color: var(--ink); }
+.memory-image img { background: var(--print); padding: 6px; border-radius: 0; box-shadow: var(--print-shadow); }
+.memory-image figcaption b { color: var(--ink); }
+.memory-image .add-story { border-radius: 4px; border-color: var(--accent); background: transparent; color: var(--accent); }
+.welcome { color: var(--ink-soft); }
+.welcome .suggestions button { background: var(--print); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); box-shadow: 0 2px 0 rgba(80, 60, 30, .15); }
+.composer { background: var(--page); border-top: 1px solid var(--line); }
+.composer input { background: var(--print); border: 1px solid var(--line); border-radius: 4px; }
+.send { border-radius: 4px; background: var(--accent); box-shadow: var(--press); }
+.thinking i { background: var(--ink-soft); }
+.notice { border-radius: 4px; }
+
+/* Sheets, forms and sign-in */
+.scrim { background: rgba(42, 38, 34, .45); }
+.sheet { background: var(--page); }
+.sheet-action, .character-row { border-bottom-color: var(--line); color: var(--ink); }
+.character-row .portrait { background: var(--print); color: var(--accent); border: 0; box-shadow: var(--print-shadow); font-family: var(--hand); }
+.lang-switch { background: transparent; border-radius: 0; border-bottom: 1px solid var(--ink-soft); padding: 0; }
+.lang-switch button { border-radius: 0; background: transparent; }
+.lang-switch button[aria-pressed="true"] { background: transparent; box-shadow: inset 0 -3px 0 var(--accent); }
+.create-form input, .create-form select, .create-form textarea, .add-story-sheet textarea, .add-story-sheet input {
+  background: var(--print); border: 1px solid var(--line); border-radius: 4px;
+}
+.create-lead, .upload-hint, .field-hint { color: var(--ink-soft); }
+.auth-page { background-color: var(--kraft); background-image: radial-gradient(rgba(80, 60, 30, .05) 1px, transparent 1px); background-size: 7px 7px; }
+.auth-card { background: var(--page); border: 0; border-radius: 4px; box-shadow: var(--print-shadow); }
+.auth-card input { background: var(--print); border: 1px solid var(--line); border-radius: 4px; }
+.auth-eyebrow { color: var(--ink-soft); }
+.toast { border-radius: 4px; }
+.offline-bar { border-radius: 4px; }
+.guide-steps > div { background: var(--print); border-color: var(--line); border-radius: 4px; }
