@@ -21,11 +21,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from .grounding import check_archive_answer
 from .language import EN, ZH, detect_language, message
-from .models import Character, Conversation, MemoryAsset, Message, Profile
+from .models import Book, Character, Conversation, MemoryAsset, Message, Profile
 from .safety import classify
-from . import stories, thumbnails
+from . import books, stories, thumbnails
 from .serializers import CharacterSerializer, ConversationSerializer, MemoryAssetSerializer
-from .tasks import INDEX_ERRORS, index_memory_asset, mark_index_failed
+from .tasks import INDEX_ERRORS, export_book_task, index_memory_asset, mark_index_failed
 
 _STANDARD_TRADITIONAL = OpenCC("s2t")
 
@@ -369,6 +369,89 @@ _ENGLISH_STYLE = (
     "If you need to decline or set a boundary, do it briefly and kindly; never output warnings, policy notes "
     "or robotic narration, and never claim the conversation has been ended."
 )
+
+
+def _book_payload(book, request):
+    outline = books.book_outline(book)
+
+    def serialize(assets):
+        return MemoryAssetSerializer(assets, many=True, context={"request": request}).data
+
+    ready = book.export_status == Book.ExportStatus.READY and book.pdf
+    return {
+        "title": book.title,
+        "default_title": books.default_book_title(book.character),
+        "dedication": book.dedication,
+        "chapters": [{"decade": chapter["decade"], "assets": serialize(chapter["assets"])} for chapter in outline["chapters"]],
+        "excluded": serialize(outline["excluded"]),
+        "missing_story": serialize(outline["missing_story"]),
+        "missing_date": [str(asset.id) for asset in outline["missing_date"]],
+        "low_resolution": [str(asset.id) for asset in outline["low_resolution"]],
+        # Cover, optional dedication, one opener per chapter, one page per photo, colophon.
+        "page_count": 2 + bool(book.dedication.strip()) + len(outline["chapters"]) + len(outline["included"]),
+        "export": {
+            "status": book.export_status,
+            "error": book.export_error,
+            "exported_at": book.exported_at,
+            "pdf_url": f"/api/v1/characters/{book.character_id}/book/pdf" if ready else None,
+            # Settings changed after the last export, so the PDF no longer matches the preview.
+            "stale": bool(ready and book.exported_at and book.updated_at > book.exported_at),
+        },
+    }
+
+
+def _queue_book_export(book):
+    book_id = book.id
+
+    def enqueue():
+        try:
+            export_book_task.delay(book_id)
+        except BrokerUnavailable:
+            export_book_task(book_id)
+
+    transaction.on_commit(enqueue)
+
+
+@api_view(["GET", "PATCH"])
+def book(request, character_id):
+    character = get_object_or_404(Character, id=character_id, owner=request.user)
+    book_obj, _ = Book.objects.get_or_create(character=character)
+    if request.method == "PATCH":
+        data = request.data
+        if "title" in data:
+            book_obj.title = str(data["title"] or "").strip()[:120]
+        if "dedication" in data:
+            book_obj.dedication = str(data["dedication"] or "").strip()[:2000]
+        if "excluded" in data:
+            if not isinstance(data["excluded"], list):
+                return Response({"error": {"code": "INVALID_BOOK", "message": "剔除名單格式唔啱。"}}, status=400)
+            album_ids = {str(asset_id) for asset_id in character.memory_assets.values_list("id", flat=True)}
+            book_obj.excluded = [str(asset_id) for asset_id in data["excluded"] if str(asset_id) in album_ids]
+        book_obj.save()
+    return Response(_book_payload(book_obj, request))
+
+
+@api_view(["POST"])
+def book_export(request, character_id):
+    character = get_object_or_404(Character, id=character_id, owner=request.user)
+    book_obj, _ = Book.objects.get_or_create(character=character)
+    if not books.book_outline(book_obj)["included"]:
+        return Response({"error": {"code": "BOOK_EMPTY", "message": "書入面未有相：最少要有一張有故事嘅相。"}}, status=400)
+    book_obj.export_status = Book.ExportStatus.PENDING
+    book_obj.export_error = ""
+    book_obj.save(update_fields=("export_status", "export_error"))
+    _queue_book_export(book_obj)
+    return Response(_book_payload(book_obj, request), status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(["GET"])
+def book_pdf(request, character_id):
+    book_obj = get_object_or_404(Book, character__id=character_id, character__owner=request.user)
+    if book_obj.export_status != Book.ExportStatus.READY or not book_obj.pdf:
+        return Response({"error": {"code": "BOOK_NOT_READY", "message": "PDF 未整好。"}}, status=404)
+    return FileResponse(
+        book_obj.pdf.open("rb"), as_attachment=True, filename=f"{books.book_title(book_obj)}.pdf", content_type="application/pdf",
+    )
 
 
 def _prompt(character, history, memory_candidates=(), conversation_summary="", recalled_messages=(), language=ZH):

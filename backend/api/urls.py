@@ -15,5 +15,8 @@ urlpatterns = [
     path("auth/adult-consent", views.adult_consent),
     path("models/status", views.model_status),
     path("characters/<uuid:character_id>/conversations", views.conversations),
+    path("characters/<uuid:character_id>/book", views.book),
+    path("characters/<uuid:character_id>/book/export", views.book_export),
+    path("characters/<uuid:character_id>/book/pdf", views.book_pdf),
     path("conversations/<uuid:conversation_id>/messages", views.send_message),
 ]

@@ -11,3 +11,4 @@ Pillow==12.3.0
 pillow-heif==1.5.0
 opencc-python-reimplemented==0.1.7
 celery[redis]==5.5.3
+weasyprint==70.0

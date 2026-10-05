@@ -97,3 +97,28 @@ class MemoryAsset(models.Model):
     index_status = models.CharField(max_length=16, choices=IndexStatus.choices, default=IndexStatus.PENDING)
     index_error = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+def book_pdf_path(instance, filename):
+    return f"books/{instance.character.owner_id}/{instance.character_id}/{uuid.uuid4()}.pdf"
+
+
+class Book(models.Model):
+    """The printable A5 book for one album; photos are chosen from the album at export time."""
+
+    class ExportStatus(models.TextChoices):
+        NONE = "none", "未匯出"
+        PENDING = "pending", "整理緊"
+        READY = "ready", "完成"
+        FAILED = "failed", "失敗"
+
+    character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name="book")
+    title = models.CharField(max_length=120, blank=True)
+    dedication = models.TextField(blank=True)
+    # Ids of photos with a story that the user chose to leave out of the book.
+    excluded = models.JSONField(default=list, blank=True)
+    pdf = models.FileField(upload_to=book_pdf_path, blank=True)
+    export_status = models.CharField(max_length=16, choices=ExportStatus.choices, default=ExportStatus.NONE)
+    export_error = models.CharField(max_length=200, blank=True)
+    exported_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)

@@ -134,3 +134,57 @@ body { background: #d8ccb2; }
 .toast { border-radius: 4px; }
 .offline-bar { border-radius: 4px; }
 .guide-steps > div { background: var(--print); border-color: var(--line); border-radius: 4px; }
+
+/* Photo book: the preview mirrors the PDF (A5, serif, one photo per page). */
+.book-link { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 10px; text-align: left; background: var(--print); border: 1px solid var(--line); border-radius: 4px; padding: 10px 14px; box-shadow: 0 2px 0 rgba(80, 60, 30, .15); cursor: pointer; color: var(--ink); }
+.book-link span { font: 700 17px var(--hand); }
+.book-link small { grid-column: 1; color: var(--ink-soft); font-size: 13px; }
+.book-link i { grid-column: 2; grid-row: 1 / span 2; font-style: normal; font-size: 22px; color: var(--accent); }
+.book-view { display: grid; gap: 16px; align-content: start; }
+.book-view > h2 { margin: 0; }
+.book-view .create-lead { margin: -10px 0 0; }
+.book-fields { display: grid; gap: 12px; }
+.book-fields label { display: grid; gap: 6px; font-size: 14px; color: var(--ink-soft); }
+.book-fields input, .book-fields textarea { width: 100%; border: 1px solid var(--line); border-radius: 4px; background: var(--print); padding: 10px 12px; font: 16px 'Noto Sans HK', sans-serif; color: var(--ink); resize: vertical; }
+.book-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.book-checks li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 4px; background: #f3e1c4; color: #6b4a22; font-size: 15px; }
+.book-checks li.ok { background: #e3ebe2; color: #2f5a41; }
+.book-checks li.warn { background: #f8e4da; color: #7d4434; }
+.book-checks button { flex: none; border: 1px solid currentColor; border-radius: 4px; background: transparent; color: inherit; padding: 5px 12px; font: 700 14px 'Noto Sans HK', sans-serif; cursor: pointer; }
+.book-empty { margin: 0; padding: 16px; background: var(--print); border-radius: 4px; color: var(--ink-soft); }
+.book-reader { display: grid; justify-items: center; gap: 10px; }
+.book-page { position: relative; width: min(100%, 340px); aspect-ratio: 148 / 210; max-width: 100%; background: #fffdf8; box-shadow: 0 2px 4px rgba(0, 0, 0, .12), 0 18px 30px -18px rgba(50, 35, 10, .55); padding: 11% 10% 13%; display: flex; flex-direction: column; justify-content: center; container-type: inline-size; font-family: 'Noto Serif HK', 'Songti TC', serif; color: var(--ink); overflow: hidden; }
+.bp-cover-page { background: #1f4a42; color: #f3eedf; padding: 12%; }
+.bp-cover { display: grid; justify-items: center; gap: 8cqi; text-align: center; }
+.bp-frame { background: #fbf8f1; padding: 3cqi 3cqi 7cqi; width: 78%; }
+.bp-frame img, .bp-frame .album-placeholder { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.bp-cover h3 { margin: 0; font-size: 9cqi; letter-spacing: .06em; }
+.bp-dedication { text-align: center; font-style: italic; font-size: 5cqi; line-height: 2; white-space: pre-wrap; }
+.bp-chapter { text-align: center; }
+.bp-chapter small { font-size: 3.4cqi; letter-spacing: .3em; color: #8b7a55; }
+.bp-chapter h3 { margin: 3cqi 0; font-size: 10cqi; }
+.bp-chapter hr { width: 18%; border: 0; border-top: 1px solid #c9bfa4; margin: 0 auto; }
+.bp-photo { display: grid; gap: 3cqi; }
+.bp-print { background: #fbf8f1; border: 1px solid #e4dccb; padding: 2.5cqi; justify-self: center; }
+.bp-print img, .bp-print .album-placeholder { display: block; max-width: 100%; max-height: 62cqi; margin: 0 auto; }
+.bp-date { margin: 0; font-size: 3.2cqi; letter-spacing: .14em; color: #8b7a55; }
+.bp-story { margin: 0; font-size: 4.3cqi; line-height: 1.9; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; }
+.bp-colophon { align-self: center; margin-top: auto; font-size: 3.4cqi; color: #8b8674; }
+.bp-folio { position: absolute; bottom: 4.5%; left: 0; right: 0; text-align: center; font-size: 3.2cqi; color: #8b8674; }
+.bp-exclude { border: 0; background: none; color: var(--rust); text-decoration: underline; text-underline-offset: 3px; font: 600 14px 'Noto Sans HK', sans-serif; cursor: pointer; }
+.book-pager { display: flex; align-items: center; gap: 14px; }
+.book-pager button { width: 46px; height: 46px; border-radius: 4px; border: 1px solid var(--line); background: var(--print); font-size: 22px; color: var(--ink); cursor: pointer; box-shadow: 0 2px 0 rgba(80, 60, 30, .15); }
+.book-pager button:disabled { opacity: .35; cursor: default; }
+.book-pager span { font-size: 14px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.book-excluded { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; color: var(--ink-soft); }
+.book-excluded button { border: 1px dashed var(--line); border-radius: 4px; background: var(--print); padding: 5px 10px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.book-export { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.book-export p { flex-basis: 100%; margin: 0; font-size: 15px; color: var(--ink-soft); }
+.book-export button { border-radius: 4px; padding: 12px 18px; font: 700 16px 'Noto Sans HK', sans-serif; border: 1px solid var(--line); background: var(--print); color: var(--ink); cursor: pointer; }
+.book-export button.primary { background: var(--accent); color: #fff; border-color: transparent; box-shadow: var(--press); }
+.book-export button:disabled { opacity: .6; cursor: default; }
+.book-stale { color: var(--rust) !important; }
+.print-guide { background: var(--print); border: 1px dashed var(--line); border-radius: 4px; padding: 12px 14px; font-size: 14px; line-height: 1.7; color: var(--ink-soft); }
+.print-guide b { color: var(--ink); font-family: var(--hand); font-size: 16px; }
+.print-guide p { margin: 4px 0 0; }
+.book-view .detail-back { justify-self: start; border: 0; background: none; padding: 6px 0; color: var(--ink); font-size: 15px; cursor: pointer; }

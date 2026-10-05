@@ -1191,3 +1191,100 @@ class PrintQualityTests(TestCase):
         call_command("reindex_memories", stdout=StringIO())
         old.refresh_from_db()
         self.assertEqual((old.width, old.height), (2000, 1500))
+
+
+class PhotoBookTests(TestCase):
+    def setUp(self):
+        from datetime import date
+
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="book-owner", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="婆婆", mode="archive", relationship="外婆")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+        self.xmas = self.photo("2020年聖誕，全家留喺屋企", date(2020, 12, 25))
+        self.tea = self.photo("婆婆同我喺金鳳茶樓飲茶", date(2010, 6, 14))
+        self.grad = self.photo("中學畢業禮，婆婆專登嚟睇", date(2010, 7, 5))
+        self.undated = self.photo("婆婆喺公園打太極", None)
+        self.vision_only = self.photo("一位婦人喺公園", None, generated="一位婦人喺公園")
+
+    def photo(self, caption, captured_at, generated="AI 描述"):
+        data = BytesIO()
+        Image.new("RGB", (64, 48), "teal").save(data, format="PNG")
+        return MemoryAsset.objects.create(
+            owner=self.user, character=self.character, caption=caption, generated_caption=generated,
+            captured_at=captured_at, image=SimpleUploadedFile("p.png", data.getvalue(), content_type="image/png"),
+        )
+
+    def url(self, suffix=""):
+        return f"/api/v1/characters/{self.character.id}/book{suffix}"
+
+    def test_photos_with_stories_are_ordered_into_decade_chapters(self):
+        data = self.client.get(self.url()).data
+        self.assertEqual([chapter["decade"] for chapter in data["chapters"]], [2010, 2020, None])
+        self.assertEqual([a["id"] for a in data["chapters"][0]["assets"]], [str(self.tea.id), str(self.grad.id)])
+        self.assertEqual([a["id"] for a in data["missing_story"]], [str(self.vision_only.id)])
+        self.assertEqual(data["missing_date"], [str(self.undated.id)])
+        self.assertEqual(data["default_title"], "婆婆嘅故事")
+        self.assertEqual(data["page_count"], 2 + 3 + 4)
+
+    def test_settings_keep_only_this_albums_photos(self):
+        other = Character.objects.create(owner=self.user, name="阿爺", mode="archive")
+        foreign = MemoryAsset.objects.create(owner=self.user, character=other, caption="x", image=SimpleUploadedFile("x.png", b"x"))
+        response = self.client.patch(self.url(), {
+            "title": "  婆婆同我  ", "dedication": "送俾阿媽", "excluded": [str(self.xmas.id), str(foreign.id)],
+        }, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["title"], "婆婆同我")
+        self.assertEqual([a["id"] for a in response.data["excluded"]], [str(self.xmas.id)])
+        self.assertEqual([c["decade"] for c in response.data["chapters"]], [2010, None])
+        self.assertEqual(self.client.patch(self.url(), {"excluded": "all"}, format="json").status_code, 400)
+
+    def test_rendered_book_has_cover_dedication_chapters_photos_and_colophon(self):
+        from weasyprint import HTML
+
+        from .books import render_book_html
+        from .models import Book
+
+        book = Book.objects.create(character=self.character, dedication="送俾阿媽")
+        document = HTML(string=render_book_html(book, {})).render()
+        self.assertEqual(len(document.pages), 1 + 1 + 3 + 4 + 1)
+
+    def test_export_produces_a_private_pdf_download(self):
+        self.assertEqual(self.client.get(self.url("/pdf")).status_code, 404)
+        from .tasks import export_book_task
+
+        with patch("api.views.export_book_task.delay", side_effect=export_book_task):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(self.url("/export"))
+        self.assertEqual(response.status_code, 202)
+        export = self.client.get(self.url()).data["export"]
+        self.assertEqual(export["status"], "ready", export)
+        download = self.client.get(export["pdf_url"])
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download["Content-Type"], "application/pdf")
+        self.assertIn("attachment", download["Content-Disposition"])
+        self.assertTrue(b"".join(download.streaming_content).startswith(b"%PDF"))
+
+        stranger = APIClient()
+        stranger.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=get_user_model().objects.create_user(username='book-stranger', password='testing-password')).key}")
+        self.assertEqual(stranger.get(export["pdf_url"]).status_code, 404)
+
+        from .models import Book
+
+        pdf_name = Book.objects.get(character=self.character).pdf.name
+        storage = self.tea.image.storage
+        self.assertTrue(storage.exists(pdf_name))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(f"/api/v1/characters/{self.character.id}/")
+        self.assertFalse(storage.exists(pdf_name))
+
+    def test_empty_book_cannot_be_exported(self):
+        MemoryAsset.objects.filter(character=self.character).update(caption="")
+        response = self.client.post(self.url("/export"))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "BOOK_EMPTY")
