@@ -1288,3 +1288,43 @@ class PhotoBookTests(TestCase):
         response = self.client.post(self.url("/export"))
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"]["code"], "BOOK_EMPTY")
+
+
+class IphoneUploadTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media.cleanup)
+        self.user = get_user_model().objects.create_user(username="iphone-owner", password="testing-password")
+        self.character = Character.objects.create(owner=self.user, name="婆婆", mode="archive")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}")
+        task_patch = patch("api.views.index_memory_asset")
+        task_patch.start()
+        self.addCleanup(task_patch.stop)
+
+    def upload(self, name, data, content_type):
+        return self.client.post("/api/v1/memory-assets/", {
+            "character": str(self.character.id), "image": SimpleUploadedFile(name, data, content_type=content_type),
+        }, format="multipart")
+
+    def test_iphone_portrait_jpeg_saved_as_mpo_is_accepted(self):
+        data = BytesIO()
+        Image.new("RGB", (64, 48), "white").save(data, format="MPO", save_all=True, append_images=[Image.new("RGB", (32, 24), "black")])
+        response = self.upload("IMG_0001.JPG", data.getvalue(), "image/jpeg")
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_heic_with_a_missing_or_generic_browser_type_is_accepted(self):
+        data = BytesIO()
+        Image.new("RGB", (8, 8), "white").save(data, format="HEIF")
+        for content_type in ("application/octet-stream", ""):
+            with self.subTest(content_type=content_type):
+                self.assertEqual(self.upload("IMG_0002.HEIC", data.getvalue(), content_type).status_code, 201)
+
+    def test_gif_and_non_images_are_rejected(self):
+        gif = BytesIO()
+        Image.new("RGB", (8, 8), "white").save(gif, format="GIF")
+        self.assertEqual(self.upload("a.gif", gif.getvalue(), "image/gif").status_code, 400)
+        self.assertEqual(self.upload("notes.jpg", b"not an image", "image/jpeg").status_code, 400)

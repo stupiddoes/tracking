@@ -347,6 +347,15 @@ const EN: Record<string, string> = {
   '自己印': 'Print it yourself',
   '用 A4 紙，喺打印設定揀「小冊子」（Booklet），每張紙會印兩頁 A5。印好對摺，喺中間釘兩口釘就係一本書。亦可以將 PDF 交俾印刷店印 A5。': 'Use A4 paper and choose "Booklet" in the print settings, so each sheet holds two A5 pages. Fold the stack in half and staple the middle twice. A print shop can also print the PDF at A5.',
 
+  // Simplified upload
+  '相片只會屬於你同 {0}。故事可以之後再同 AI 慢慢講。': 'These photos belong to you and {0}\'s album only. You can tell their stories with the AI later.',
+  '已揀 {0} 張相': '{0} photos chosen',
+  '＋ 揀相片': '＋ Choose photos',
+  '撳呢度可以重新揀': 'Tap here to choose again',
+  '可以一次揀多張；JPEG、PNG、WebP、HEIC，每張最多 50 MB': 'Choose several at once; JPEG, PNG, WebP or HEIC, up to 50 MB each',
+  '加描述、標籤或日期（選填）': 'Add a description, tags or date (optional)',
+  '保存 {0} 張相': 'Save {0} photos',
+
   // Language settings
   '介面語言': 'App language',
   '相簿語言': 'Album language',

@@ -188,3 +188,21 @@ body { background: #d8ccb2; }
 .print-guide b { color: var(--ink); font-family: var(--hand); font-size: 16px; }
 .print-guide p { margin: 4px 0 0; }
 .book-view .detail-back { justify-self: start; border: 0; background: none; padding: 6px 0; color: var(--ink); font-size: 15px; cursor: pointer; }
+
+/* iPhone Safari zooms the whole page into any field under 16px, then the layout needs panning.
+   Several older rules set 14px through more specific selectors, hence !important. */
+input, select, textarea { font-size: 16px !important; }
+
+/* Upload: one big picker, optional details folded away, actions always in reach. */
+.upload-lead { margin: -4px 0 4px; color: var(--ink-soft); }
+.photo-picker { position: relative; display: grid !important; gap: 4px; justify-items: center; text-align: center; padding: 28px 16px; border: 2px dashed var(--accent); border-radius: 6px; background: var(--print); color: var(--accent) !important; cursor: pointer; }
+.photo-picker b { font: 700 21px var(--hand); }
+.photo-picker span { font-size: 14px; color: var(--ink-soft); }
+.photo-picker.chosen { border-style: solid; background: #e9f0e6; }
+.photo-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.photo-picker:focus-within { outline: 3px solid var(--stamp); outline-offset: 2px; }
+.upload-more summary { cursor: pointer; font-weight: 700; color: var(--accent); padding: 6px 0; }
+.upload-more[open] { display: grid; gap: 12px; }
+.upload-actions { position: sticky; bottom: calc(-32px); margin: 4px -20px -32px; padding: 12px 20px calc(14px + env(safe-area-inset-bottom)); background: var(--page); border-top: 1px solid var(--line); }
+.upload-actions .primary:disabled { opacity: .5; box-shadow: none; }
+.upload-actions button:not(.primary) { background: var(--print); border: 1px solid var(--line); color: var(--ink); }

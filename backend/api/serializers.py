@@ -1,7 +1,11 @@
+import logging
+
 from rest_framework import serializers
 from .models import Character, Conversation, MemoryAsset, Message
 from .printing import print_quality
 from .thumbnails import thumbnail_url
+
+logger = logging.getLogger(__name__)
 
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -56,12 +60,16 @@ class MemoryAssetSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             self.fields["character"].queryset = Character.objects.filter(owner=request.user)
 
+    # Pillow's detected format, not the browser's MIME type: iPhones send portrait and HDR
+    # shots as MPO (JPEG with extra images) and Safari sometimes reports no type at all.
+    ALLOWED_IMAGE_FORMATS = {"JPEG", "MPO", "PNG", "WEBP", "HEIF", "HEIC", "AVIF"}
+
     def validate_image(self, image):
         if image.size > 50 * 1024 * 1024:
             raise serializers.ValidationError("圖片不可超過 50 MB。")
-        if getattr(image, "content_type", "") not in {
-            "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
-        }:
+        detected = getattr(getattr(image, "image", None), "format", None)
+        if detected not in self.ALLOWED_IMAGE_FORMATS:
+            logger.warning("Rejected photo upload: format=%s name=%s", detected, getattr(image, "name", ""))
             raise serializers.ValidationError("只支援 JPEG、PNG、WebP、HEIC 或 HEIF。")
         return image
 
