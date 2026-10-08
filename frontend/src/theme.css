@@ -230,3 +230,15 @@ body { min-height: 0; overscroll-behavior-y: none; }
   .auth-switch { padding: 8px; }
   .auth-card > small { margin-top: 2px; }
 }
+
+/* Width on iPhone: Safari gives date fields an intrinsic minimum width that ignores width:100%,
+   long unbroken words (English, file names) do not wrap, and landscape text may be enlarged. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+input[type="date"] { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 44px; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+input, select, textarea { max-width: 100%; }
+.album-scroll, .page-view, .conversation, .album-detail { overflow-x: hidden; }
+.tile b, .home-header h1, .story-prompt b, .message-body > p, .memory-image figcaption, .notice, .toast, .auth-error, .album-error,
+.bp-story, .book-checks span, .book-excluded button, .character-row b, .sheet h2, .ai-caption span, .index-status span, .add-story-photo p,
+.identity h1, .section-title { overflow-wrap: anywhere; min-width: 0; }
+.book-checks li > span { flex: 1; }
