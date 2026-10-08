@@ -242,3 +242,10 @@ input, select, textarea { max-width: 100%; }
 .bp-story, .book-checks span, .book-excluded button, .character-row b, .sheet h2, .ai-caption span, .index-status span, .add-story-photo p,
 .identity h1, .section-title { overflow-wrap: anywhere; min-width: 0; }
 .book-checks li > span { flex: 1; }
+
+/* Grids without a column template get an "auto" column that older iPhone Safari sizes from the
+   content's widest point (photos, long lines) instead of the screen. Pin every layout column to
+   the available width so nothing can push the album wider than the phone. */
+.app-shell, .album, .album-scroll, .page-view, .album-detail form { grid-template-columns: minmax(0, 1fr); }
+.app-shell > *, .album > *, .album-scroll > *, .album-grid > *, .tile > * { min-width: 0; max-width: 100%; }
+.tile-photo img, .story-prompt-photo img { max-width: 100%; }
